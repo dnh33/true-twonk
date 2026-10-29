@@ -28,6 +28,9 @@ const liveFlags = {}; // the flags whose records still match, per collection
 const spellingFlags = JSON.parse(await readFile(new URL('./spelling-flags.json', import.meta.url), 'utf8'));
 // { "<slug>/<number>": { evidence, secondLook, ownerOk } }: a misprint reaches the site only after an independent second
 // look agrees (given only the evidence, never the first verdict) and the owner has said yes
+// { collection address: { number: [[upper type, value, lower type, value, what is odd]] } }: layer clashes, two parts that
+// overlap oddly because of the drawing order. Not misprints (the record matches the art); same review gate.
+const layerClashes = JSON.parse(await readFile(new URL('./layer-clashes.json', import.meta.url), 'utf8'));
 const reviews = JSON.parse(await readFile(new URL('./misprint-reviews.json', import.meta.url), 'utf8'));
 const approved = (fleetName, n) => {
   const r = reviews[`${fleetName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}/${n}`];
@@ -86,6 +89,13 @@ for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
   for (const [n, list] of Object.entries(spellingFlags[raw.c] || {})) {
     if (list.length !== (doc.spelling[n] || []).length) console.warn(`spelling flag dropped: ${raw.name} #${n}, its record no longer says what tools/spelling-flags.json claims`);
   }
+  doc.clash = {};
+  for (const [n, list] of Object.entries(layerClashes[raw.c] || {})) {
+    const row = doc.tok.find((r) => r[0] === +n);
+    const holds = (type, value) => { const t = doc.types.indexOf(type); return t >= 0 && row[8 + t] >= 0 && String(doc.traits[t][row[8 + t]][0]).trim() === value.trim(); };
+    if (!row || !list.every(([a, av, b, bv]) => holds(a, av) && holds(b, bv))) { console.warn(`layer clash dropped: ${raw.name} #${n}, its record no longer holds the pair in tools/layer-clashes.json`); continue; }
+    if (approved(raw.name, n)) doc.clash[n] = list;
+  }
   doc.offChain = chainStatus.notOnChain[raw.c] || [];
   doc.chainChecked = chainStatus.checked;
   if (doc.n < 2) continue;
@@ -129,13 +139,18 @@ for (const [c, toks] of Object.entries(liveFlags)) {
       evidence: existsSync(new URL(`../public/evidence/${fleet.slug}-${n}.png`, import.meta.url)) ? `/evidence/${fleet.slug}-${n}.png` : null,
     });
   }
+  for (const [n, list] of Object.entries(doc.clash || {})) {
+    const row = doc.tok.find((r) => r[0] === +n);
+    misprints.push({ c, slug: fleet.slug, fleet: fleet.name, n: +n, name: doc.names[n] || `${fleet.name} #${n}`, image: row[3], twetch: row[1], kind: 'clash', detail: list,
+      evidence: existsSync(new URL(`../public/evidence/${fleet.slug}-${n}.png`, import.meta.url)) ? `/evidence/${fleet.slug}-${n}.png` : null });
+  }
   // "spelling" = the record misspells its own name in a trait (found over every collection, not only the pixel-art ones)
   for (const [n, list] of Object.entries(doc.spelling || {})) {
     const row = doc.tok.find((r) => r[0] === +n);
     misprints.push({ c, slug: fleet.slug, fleet: fleet.name, n: +n, name: doc.names[n], image: row[3], twetch: row[1], kind: 'spelling', detail: list });
   }
 }
-const KINDS = ['wrong', 'spelling', 'blank'];
+const KINDS = ['wrong', 'spelling', 'blank', 'clash'];
 misprints.sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind) || a.fleet.localeCompare(b.fleet) || a.n - b.n);
 // Twonks Twetch lists that are not on the blockchain (tools/chain-status.json, from tools/chain-check.mjs): not
 // misprints, since there is no on-chain record to misprint; listed apart, with the date they were checked

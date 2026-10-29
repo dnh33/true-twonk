@@ -93,10 +93,12 @@ const day = (iso) => { const d = new Date(`${iso}T00:00:00Z`); return `${d.getUT
 // a Twonk whose on-chain record does not match its art (checked by eye, tools/art-flags.json). Misprints are a tier of
 // their own, shown beside the rank and never inside it: the rank follows the record.
 const KIND = { wrong: 'wrong-trait', spelling: 'misspelled-trait', blank: 'blank-record' };
+// layer clashes share the misprints list but are not misprints: counted and labelled apart
 const misprintOf = (f, n) => misprints?.misprints.find((m) => m.c === f.c && m.n === n) || null;
 const kindCount = (m) => misprints.misprints.filter((x) => x.kind === m.kind).length;
-const misprintBox = (m) => `
-  <div class="r misp"><span>Misprint</span><b>1 of ${kindCount(m)}</b><small>${kindCount(m) === 1 ? `the only known ${KIND[m.kind]} misprint` : `${KIND[m.kind]} misprint (1 of ${misprints.misprints.length} known)`}</small></div>`;
+const misprintBox = (m) => m.kind === 'clash' ? `
+  <div class="r misp"><span>Layer clash</span><b>1 of ${kindCount(m)}</b><small>${kindCount(m) === 1 ? 'the only known layer clash' : `layer clash (1 of ${kindCount(m)} known)`}</small></div>` : `
+  <div class="r misp"><span>Misprint</span><b>1 of ${kindCount(m)}</b><small>${kindCount(m) === 1 ? `the only known ${KIND[m.kind]} misprint` : `${KIND[m.kind]} misprint (1 of ${misprints.misprints.filter((x) => x.kind !== 'clash').length} known)`}</small></div>`;
 
 // ---------- check it on the blockchain ----------
 // Read live, in the visitor's browser: Twetch's API names the Twonk's current output, WhatsOnChain serves that raw
@@ -160,6 +162,7 @@ async function factCheck(body, f, row) {
   }
 }
 
+const ev0 = (f, row) => misprints?.misprints.find((m) => m.c === f.c && m.n === row[0] && m.kind === 'clash')?.evidence;
 function showMisprints() {
   if (!misprints) return;
   const list = misprints.misprints;
@@ -170,6 +173,9 @@ function showMisprints() {
       <span class="mp-d">${m.kind === 'wrong'
         ? (m.custom ? 'A Signature 1-of-1 (custom art). ' : '') + m.detail.map(([type, record, art]) => `${esc(type)}: the art shows ${esc(art)}, the record says ${esc(record)}.`).join(' ')
           + (m.evidence ? ` <a class="ev" href="${esc(m.evidence)}" target="_blank" rel="noopener">See the comparison</a>` : '')
+        : m.kind === 'clash'
+          ? m.detail.map(([a, av, b, bv, what]) => `${esc(a)} ${esc(av)} with ${esc(b)} ${esc(bv)}: ${esc(what)}.`).join(' ')
+            + (m.evidence ? ` <a class="ev" href="${esc(m.evidence)}" target="_blank" rel="noopener">See the comparison</a>` : '')
         : m.kind === 'spelling'
           ? m.detail.map(([type, record, name]) => `${esc(type)}: the record spells it “${esc(record)}”; its own name is “${esc(name)}”.`).join(' ')
           : `Not on chain. ${m.twetch ? `Twetch shows #${fmt(m.twetch)}.` : 'Twetch shows no rank.'}`}</span>
@@ -187,6 +193,8 @@ function showMisprints() {
       <p class="fine">Found by comparing each Twonk's art with its record. Each one is then checked by eye, confirmed by a second reviewer who sees only the comparison, and approved before it is listed. Checked: ${misprints.checked.length} of ${misprints.of} collections, the pixel-art ones (${esc(misprints.checked.join(', '))}). The other ${misprints.of - misprints.checked.length} are not pixel art, which this check cannot read, so they may hold misprints not listed here.</p>
       ${group('spelling', 'Misspelled trait')}
       ${list.some((m) => m.kind === 'spelling') ? `<p class="fine">Found by comparing every named Twonk's traits with its own name, in all ${misprints.of} collections: a trait one or two letters off the name.</p>` : ''}
+      ${group('clash', 'Layer clashes')}
+      ${list.some((m) => m.kind === 'clash') ? `<p class="fine">Not misprints: the record matches the art. Two parts overlap oddly because of the order the parts are drawn in. Each one is checked by eye, confirmed by a second reviewer who sees only the comparison, and approved before it is listed.</p>` : ''}
       ${(misprints.offChain || []).length ? `
       <h3>Not on the blockchain (${misprints.offChain.length})</h3>
       <p class="fine">Not misprints: there is no on-chain record to misprint. Twetch lists these Twonks, and shows a rank for some of them, but marks them pending with no owner, and no transaction exists for them (checked ${day(misprints.chainChecked)}).</p>
@@ -221,7 +229,7 @@ function traitRows(f, row) {
     const [raw, tier, c, reported, beats, ex, cAll] = f.traits[t][v];
     const value = /vaccination/i.test(f.types[t]) && /^\d+$/.test(raw) ? `${raw} dose${raw === '1' ? '' : 's'}` : raw;
     const notes = [];
-    if (beats && ex) notes.push(`<span class="flag hot">Labelled ${tierName(tier)}, yet rarer than ${beats === 1 ? 'an' : fmt(beats)} ${beats === 1 ? tierName(ex[2]) : 'higher-labelled'} trait${beats === 1 ? '' : 's'}, like ${esc(f.traits[ex[0]][ex[1]][0])} (${tierName(ex[2])}, ${fmt(ex[3])})</span>`);
+    if (beats && ex) notes.push(`<span class="flag hot">Labelled ${tierName(tier)}, yet rarer than ${beats === 1 ? (/^[aeiou]/i.test(tierName(ex[2])) ? 'an' : 'a') : fmt(beats)} ${beats === 1 ? tierName(ex[2]) : 'higher-labelled'} trait${beats === 1 ? '' : 's'}, like ${esc(f.traits[ex[0]][ex[1]][0])} (${tierName(ex[2])}, ${fmt(ex[3])})</span>`);
     // only a miscount over the same Twonks Twetch counts; a gap from leaving burned ones out is not Twetch's error
     if (reported != null && reported !== cAll && !f.pooled) notes.push(`<span class="flag">Twetch lists ${fmt(reported)}. The records show ${fmt(cAll)}.</span>`);
     if (f.unscored.includes(f.types[t])) notes.push(`<span class="flag">Not in Twetch's rank</span>`);
@@ -233,6 +241,8 @@ function traitRows(f, row) {
     const typo2 = (f.spelling?.[row[0]] || []).find(([type]) => type === f.types[t]);
     if (typo2) notes.push(`<span class="flag hot">Spelled “${esc(typo2[1])}” on chain. Its own name is “${esc(typo2[2])}”. Ranked by the record.</span>`);
     const ev = seen && misprintOf(f, row[0])?.evidence;
+    const clash = (f.clash?.[row[0]] || []).find(([a]) => a === f.types[t]);  // said once, on the part drawn on top
+    if (clash) notes.push(`<span class="flag">Layer clash: ${esc(clash[4])}. Not a misprint: the record matches the art.${ev0(f, row) ? ` <a href="${esc(ev0(f, row))}" target="_blank" rel="noopener">See the comparison</a>` : ''}</span>`);
     const custom = f.types.some((type, k) => /signature/i.test(type) && row[8 + k] >= 0);
     if (seen) notes.push(`<span class="flag hot">${custom ? 'A Signature 1-of-1 (custom art). ' : ''}The art shows ${esc(seen[2])}. The on-chain record says ${esc(seen[1])}. Ranked by the record.${ev ? ` <a href="${esc(ev)}" target="_blank" rel="noopener">See the comparison</a>` : ''}</span>`);
     rows.push({ c, html: `
@@ -342,7 +352,7 @@ function render(f, number) {
           <div class="r true"><span>True rank</span><b class="slam">#${fmt(row[2])}</b><small>of ${fmt(f.n)}, ${asOf()}</small></div>
           ${mp ? misprintBox(mp) : ''}
         </div>
-        ${mp ? '<p class="fine"><a href="/#misprints">See all known misprints</a></p>' : ''}
+        ${mp ? `<p class="fine"><a href="/#misprints">${mp.kind === 'clash' ? 'See the misprints and layer clashes' : 'See all known misprints'}</a></p>` : ''}
         ${head}
         ${missingPiece(f, row) ? `<p class="fine">A one-of-one "Missing" piece: every trait is unique by design.</p>` : ''}
         ${st.length ? `<ul class="steps" aria-label="What moved it">${st.join('')}</ul>` : ''}
