@@ -23,6 +23,8 @@ const consumed = JSON.parse(await readFile(new URL('./burned.json', import.meta.
 // { collection address: { number: [[trait type, value on record, value the art shows], ...] } }
 const artFlags = JSON.parse(await readFile(new URL('./art-flags.json', import.meta.url), 'utf8'));
 const liveFlags = {}; // the flags whose records still match, per collection
+// { collection address: { number: [[trait type, value on record, the Twonk's name]] } }: misspellings checked by eye
+const spellingFlags = JSON.parse(await readFile(new URL('./spelling-flags.json', import.meta.url), 'utf8'));
 // { checked: date, notOnChain: { collection address: [numbers] } }: Twonks Twetch lists that are not on the blockchain;
 // listingOnly: { collection address: [trait types] }: traits no on-chain record holds, shown and never ranked
 const chainStatus = JSON.parse(await readFile(new URL('./chain-status.json', import.meta.url), 'utf8'));
@@ -58,13 +60,20 @@ for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
   }
   liveFlags[raw.c] = doc.art;
   // a record that misspells its own name in a trait (Rare Sirloins #736 "Snow Rabbit", Meat "Sow Rabbit"): shown, never
-  // ranked. Found from the names and traits themselves, so it stays current: { number: [[type, value on record, name]] }
+  // ranked. The rule only finds candidates: a near-miss can be a pun, so a hit is shown only once it is checked by eye
+  // and listed in tools/spelling-flags.json, and only while the record still says it. { number: [[type, value, name]] }
   doc.spelling = {};
   for (const [n, name] of Object.entries(doc.names)) {
     const row = doc.tok.find((r) => r[0] === +n);
     const list = row ? doc.types.map((type, t) => [type, row[8 + t] >= 0 ? doc.traits[t][row[8 + t]][0] : null, name])
       .filter(([, value]) => value != null && misspelled(name, value)) : [];
-    if (list.length) doc.spelling[n] = list;
+    const reviewed = spellingFlags[raw.c]?.[n] || [];
+    const shown = list.filter(([type, value]) => reviewed.some(([rt, rv]) => rt === type && rv === value));
+    if (shown.length) doc.spelling[n] = shown;
+    if (shown.length < list.length) console.warn(`spelling candidate, not shown until checked by eye: ${raw.name} #${n} "${name}": ${list.filter((x) => !shown.includes(x)).map(([t, v]) => `${t} "${v}"`).join(', ')}; add it to tools/spelling-flags.json if it is a misprint`);
+  }
+  for (const [n, list] of Object.entries(spellingFlags[raw.c] || {})) {
+    if (list.length !== (doc.spelling[n] || []).length) console.warn(`spelling flag dropped: ${raw.name} #${n}, its record no longer says what tools/spelling-flags.json claims`);
   }
   doc.offChain = chainStatus.notOnChain[raw.c] || [];
   doc.chainChecked = chainStatus.checked;
