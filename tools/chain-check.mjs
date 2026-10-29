@@ -146,12 +146,18 @@ async function check(fleet) {
   res.extraTypes = [...res.extraTypes];
   // a Twonk the chain does not know must also be one Twetch marks pending; anything else is a lookup to re-check
   const known = current ? state : await tokenStates(fleet.c, res.notOnChain);
-  res.notOnChain = res.notOnChain.map((n) => ({ n, pending: known.get(n)?.pending ?? null, owner: known.get(n)?.owner ?? null }));
+  // a burned Twonk (Twetch: consumed, e.g. used up in a vaccination) can have no current output either: it was on
+  // chain, so it is not "not on chain". The site already shows it as burned (tools/burned.json).
+  const gone = new Set(burned[fleet.c] || []);
+  res.burnedNoOutput = res.notOnChain.filter((n) => gone.has(n));
+  res.notOnChain = res.notOnChain.filter((n) => !gone.has(n))
+    .map((n) => ({ n, pending: known.get(n)?.pending ?? null, owner: known.get(n)?.owner ?? null }));
   res.unexplained = res.notOnChain.filter((x) => x.pending !== true).map((x) => x.n);
   return res;
 }
 
 const index = JSON.parse(await readFile(new URL('index.json', DATA), 'utf8'));
+const burned = JSON.parse(await readFile(new URL('./burned.json', import.meta.url), 'utf8'));
 await mkdir(cache, { recursive: true });
 await mkdir(OUT, { recursive: true });
 const report = { at: new Date().toISOString(), collections: [] };
@@ -161,7 +167,7 @@ for (const f of index.fleets) {
     const r = await check(f);
     report.collections.push(r);
     const off = Object.entries(r.offChainTraits).map(([t, k]) => `${t} ${k}`).join(', ');
-    console.log(`${r.name.padEnd(18)} listed ${String(r.listed).padStart(5)}  on chain ${String(r.onChain).padStart(5)}  not on chain ${String(r.notOnChain.length).padStart(4)}${r.unexplained.length ? ` (${r.unexplained.length} NOT pending)` : ''}  no record ${String(r.noRecord.length).padStart(4)}${r.lookupFailed.length ? `  LOOKUP FAILED ${r.lookupFailed.length}` : ''}  value diffs ${String(r.traitDiffs.length).padStart(4)}  rank diffs ${String(r.rankDiffs.length).padStart(4)}${r.noStoredRank ? `  no stored rank ${r.noStoredRank}` : ''}${off ? `  site-only traits: ${off}` : ''}${r.extraTypes.length ? `  types only on chain: ${r.extraTypes.map((t) => JSON.stringify(t)).join(', ')}` : ''}`);
+    console.log(`${r.name.padEnd(18)} listed ${String(r.listed).padStart(5)}  on chain ${String(r.onChain).padStart(5)}  not on chain ${String(r.notOnChain.length).padStart(4)}${r.unexplained.length ? ` (${r.unexplained.length} NOT pending)` : ''}${r.burnedNoOutput.length ? `  burned, no output ${r.burnedNoOutput.length}` : ''}  no record ${String(r.noRecord.length).padStart(4)}${r.lookupFailed.length ? `  LOOKUP FAILED ${r.lookupFailed.length}` : ''}  value diffs ${String(r.traitDiffs.length).padStart(4)}  rank diffs ${String(r.rankDiffs.length).padStart(4)}${r.noStoredRank ? `  no stored rank ${r.noStoredRank}` : ''}${off ? `  site-only traits: ${off}` : ''}${r.extraTypes.length ? `  types only on chain: ${r.extraTypes.map((t) => JSON.stringify(t)).join(', ')}` : ''}`);
   } catch (e) {
     report.collections.push({ c: f.c, name: f.name, error: e.message });
     console.log(`${f.name.padEnd(18)} ERROR ${e.message}`);
