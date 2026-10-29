@@ -1,5 +1,6 @@
 // Check every Twonk's record on Twetch against the record written in its blockchain transaction.
-// For each collection: Twetch's token list gives each Twonk's current output; WhatsOnChain gives the raw
+// For each collection: Twetch's token API gives each Twonk's current output (--mint: the collection list's mint
+// output instead); WhatsOnChain gives the raw
 // transaction (20 per request, about 2.5 requests a second, under its free limit of 3); public/chain.js reads
 // the record out of it. Compared with the data the site ranks by (public/data): every trait value, and the rank
 // stored on chain against the rank Twetch prints.
@@ -17,6 +18,8 @@ const DATA = new URL('../public/data/', import.meta.url);
 const OUT = new URL('../audit/', import.meta.url);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T0 = 8; // value indexes start after 8 fields in a site token row
+const current = !args.includes('--mint'); // default: each Twonk's current record; --mint reads the minted ones
+const today = new Date().toISOString().slice(0, 10);
 
 /** Twetch's list outpoint comes two ways: "txid_vout" (Comfy Sweatpants), or 72 hex characters: the txid in
  *  reversed byte order, then the output number as 4 little-endian bytes (Frog Cartel). */
@@ -67,13 +70,47 @@ async function txHex(txids) {
 
 const norm = (v) => String(v ?? '').trim();
 
+/** Twetch's token record for each number: { o: current outpoint "txid:vout", pending, owner }, or null when the
+ *  lookup failed. Cached per day (a Twonk's output moves when it changes hands), so a stopped run resumes.
+ *  Four lookups in flight, each worker pausing between calls: about 5 a second. */
+async function tokenStates(c, nums) {
+  const dir = `${cache}/tok-${today}/${c}`;
+  await mkdir(dir, { recursive: true });
+  const out = new Map();
+  let next = 0, done = 0;
+  const work = async () => {
+    while (next < nums.length) {
+      const n = nums[next++], f = `${dir}/${n}.json`;
+      if (existsSync(f)) { out.set(n, JSON.parse(await readFile(f, 'utf8'))); continue; }
+      const tok = await getJson(`https://api.twetch.com/v1/tokens/${c}/${n}`, { headers: { Accept: 'application/json' } }).catch(() => null);
+      const s = tok ? { o: tok.state?.currentOutpoint || null, pending: !!tok.pending, owner: tok.ownerUser?.id ?? null } : null;
+      out.set(n, s);
+      if (s) await writeFile(f, JSON.stringify(s));
+      if (++done % 500 === 0) console.error(`  ${c.slice(0, 8)}: ${done} looked up`);
+      await sleep(600);
+    }
+  };
+  await Promise.all([work(), work(), work(), work()]);
+  return out;
+}
+
 async function check(fleet) {
   const d = JSON.parse(await readFile(new URL(`${fleet.c}.json`, DATA), 'utf8'));
   const list = (await getJson(`https://api.twetch.com/v1/market/collections/${fleet.c}/tokens?all=1`)).data;
+  // the list's outpoint is where the Twonk was minted; once it changes hands its record lives in a later output
   const where = new Map(list.filter((t) => t.outpoint).map((t) => [t.number, outpoint(t.outpoint)]));
+  const state = new Map();
+  if (current) {
+    const got = await tokenStates(fleet.c, d.tok.map((r) => r[0]));
+    for (const [n, s] of got) {
+      state.set(n, s);
+      if (s?.o) { const [tx, vout] = s.o.split(':'); where.set(n, { tx, vout: +vout }); } else if (s) where.delete(n); // Twetch names no output
+    }
+  }
   const hex = await txHex([...new Set([...where.values()].map((o) => o.tx))]);
   const res = {
-    c: fleet.c, name: d.name, listed: list.length, onChain: 0, notOnChain: [], noRecord: [],
+    c: fleet.c, name: d.name, read: current ? 'current output (Twetch token API)' : 'mint output (Twetch collection list)',
+    listed: list.length, onChain: 0, notOnChain: [], noRecord: [], lookupFailed: d.tok.filter((r) => current && !state.get(r[0])).map((r) => r[0]),
     traitDiffs: [], // both have the trait, with different values
     offChainTraits: {}, // per trait type: how many Twonks have it on the site but not in their on-chain record
     rankDiffs: [], noStoredRank: 0, extraTypes: new Set(),
@@ -108,11 +145,8 @@ async function check(fleet) {
   }
   res.extraTypes = [...res.extraTypes];
   // a Twonk the chain does not know must also be one Twetch marks pending; anything else is a lookup to re-check
-  res.notOnChain = await Promise.all(res.notOnChain.map(async (n, k) => {
-    await sleep(k * 300);
-    const tok = await getJson(`https://api.twetch.com/v1/tokens/${fleet.c}/${n}`).catch(() => null);
-    return { n, pending: tok ? !!tok.pending : null, owner: tok?.ownerUser?.id ?? null };
-  }));
+  const known = current ? state : await tokenStates(fleet.c, res.notOnChain);
+  res.notOnChain = res.notOnChain.map((n) => ({ n, pending: known.get(n)?.pending ?? null, owner: known.get(n)?.owner ?? null }));
   res.unexplained = res.notOnChain.filter((x) => x.pending !== true).map((x) => x.n);
   return res;
 }
@@ -127,7 +161,7 @@ for (const f of index.fleets) {
     const r = await check(f);
     report.collections.push(r);
     const off = Object.entries(r.offChainTraits).map(([t, k]) => `${t} ${k}`).join(', ');
-    console.log(`${r.name.padEnd(18)} listed ${String(r.listed).padStart(5)}  on chain ${String(r.onChain).padStart(5)}  not on chain ${String(r.notOnChain.length).padStart(4)}${r.unexplained.length ? ` (${r.unexplained.length} NOT pending)` : ''}  no record ${String(r.noRecord.length).padStart(4)}  value diffs ${String(r.traitDiffs.length).padStart(4)}  rank diffs ${String(r.rankDiffs.length).padStart(4)}${r.noStoredRank ? `  no stored rank ${r.noStoredRank}` : ''}${off ? `  site-only traits: ${off}` : ''}${r.extraTypes.length ? `  types only on chain: ${r.extraTypes.map((t) => JSON.stringify(t)).join(', ')}` : ''}`);
+    console.log(`${r.name.padEnd(18)} listed ${String(r.listed).padStart(5)}  on chain ${String(r.onChain).padStart(5)}  not on chain ${String(r.notOnChain.length).padStart(4)}${r.unexplained.length ? ` (${r.unexplained.length} NOT pending)` : ''}  no record ${String(r.noRecord.length).padStart(4)}${r.lookupFailed.length ? `  LOOKUP FAILED ${r.lookupFailed.length}` : ''}  value diffs ${String(r.traitDiffs.length).padStart(4)}  rank diffs ${String(r.rankDiffs.length).padStart(4)}${r.noStoredRank ? `  no stored rank ${r.noStoredRank}` : ''}${off ? `  site-only traits: ${off}` : ''}${r.extraTypes.length ? `  types only on chain: ${r.extraTypes.map((t) => JSON.stringify(t)).join(', ')}` : ''}`);
   } catch (e) {
     report.collections.push({ c: f.c, name: f.name, error: e.message });
     console.log(`${f.name.padEnd(18)} ERROR ${e.message}`);
@@ -138,7 +172,7 @@ for (const f of index.fleets) {
 
 // A complete, clean run refreshes the list the site shows (tools/chain-status.json): every Twonk the chain does not
 // know and Twetch marks pending. A run with errors or unexplained misses leaves the list as it was.
-const clean = want === 'all' && report.collections.every((c) => !c.error && !c.unexplained.length);
+const clean = want === 'all' && report.collections.every((c) => !c.error && !c.unexplained.length && !c.lookupFailed.length);
 if (clean) {
   const notOnChain = {};
   for (const c of report.collections) {
@@ -151,4 +185,4 @@ if (clean) {
     notOnChain,
   }, null, 1)}\n`);
   console.log(`tools/chain-status.json refreshed: ${Object.values(notOnChain).flat().length} Twonks not on chain`);
-} else if (want === 'all') console.log('tools/chain-status.json NOT refreshed: the run had errors or unexplained misses');
+} else if (want === 'all') console.log('tools/chain-status.json NOT refreshed: the run had errors, unexplained misses or failed lookups');
