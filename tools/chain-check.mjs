@@ -227,7 +227,11 @@ for (const f of index.fleets) {
 
 // A complete, clean run refreshes the list the site shows (tools/chain-status.json): every Twonk the chain does not
 // know and Twetch marks pending. A run with errors or unexplained misses leaves the list as it was.
-const clean = want === 'all' && report.collections.every((c) => !c.error && !c.unexplained.length && !c.lookupFailed.length && !c.spent.length && !c.wrongTwonk.length);
+const clean = want === 'all' && report.collections.every((c) => !c.error && !c.unexplained.length && !c.lookupFailed.length && !c.wrongTwonk.length);
+// a stale pointer (Twetch names an output the chain says is spent: Egg #1193 since 2023, or a Twonk sold during the
+// hours a run takes) is a finding to report, not a reason to keep the not-on-chain list from updating
+const stale = report.collections.flatMap((c) => (c.spent || []).map((s) => `${c.name} #${s.n}`));
+if (stale.length) console.log(`stale pointers (Twetch names a spent output; re-check, sales during the run show here too): ${stale.join(', ')}`);
 if (clean) {
   const notOnChain = {}, listingOnly = {};
   for (const c of report.collections) {
@@ -243,4 +247,4 @@ if (clean) {
     listingOnly,
   }, null, 1)}\n`);
   console.log(`tools/chain-status.json refreshed: ${Object.values(notOnChain).flat().length} Twonks not on chain`);
-} else if (want === 'all') console.log('tools/chain-status.json NOT refreshed: the run had errors, unexplained misses or failed lookups');
+} else if (want === 'all') console.log('tools/chain-status.json NOT refreshed: the run had errors, unexplained misses, failed lookups or records carrying another number');
