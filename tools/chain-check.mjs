@@ -3,7 +3,8 @@
 // output instead); WhatsOnChain gives the raw
 // transaction (20 per request, about 2.5 requests a second, under its free limit of 3); public/chain.js reads
 // the record out of it. Compared with the data the site ranks by (public/data): every trait value, and the rank
-// stored on chain against the rank Twetch prints.
+/// stored on chain against the rank Twetch prints. Twetch's pointer is checked too: the output it calls current
+// must be unspent on chain (WhatsOnChain's spent lookup) and its record must carry the Twonk's number.
 // Transactions are cached in the cache folder, so a stopped run resumes where it was.
 // Run: node tools/chain-check.mjs [collection slug,...|all] [--cache D:/_twonk-chain]
 // Writes audit/chain-check.json and prints a summary per collection.
@@ -70,6 +71,36 @@ async function txHex(txids) {
 
 const norm = (v) => String(v ?? '').trim();
 
+/** For each outpoint "txid:vout", the txid that spent it on chain, or '' while unspent: WhatsOnChain's own answer,
+ *  not Twetch's. An output Twetch calls current that is already spent means Twetch points at a stale record.
+ *  Cached per day and collection. */
+async function spentBy(c, points) {
+  const f = `${cache}/spent-${today}-${c}.json`;
+  const out = existsSync(f) ? new Map(Object.entries(JSON.parse(await readFile(f, 'utf8')))) : new Map();
+  const todo = points.filter((p) => !out.has(p));
+  for (let i = 0; i < todo.length; i += 20) {
+    const utxos = todo.slice(i, i + 20).map((p) => { const [txid, vout] = p.split(':'); return { txid, vout: +vout }; });
+    const res = await getJson('https://api.whatsonchain.com/v1/bsv/main/utxos/spent', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ utxos }),
+    });
+    for (const r of res) {
+      const p = `${r.utxo.txid}:${r.utxo.vout}`;
+      if (!r.error) { out.set(p, r.spentIn?.txid || ''); continue; }
+      // the bulk call sometimes answers "Unable to get spent info" for one output; ask for it alone (404 = unspent)
+      for (let k = 1; ; k++) {
+        await sleep(1000 * k);
+        const one = await fetch(`https://api.whatsonchain.com/v1/bsv/main/tx/${r.utxo.txid}/${r.utxo.vout}/spent`);
+        if (one.status === 404) { out.set(p, ''); break; }
+        if (one.ok) { out.set(p, (await one.json()).txid); break; }
+        if (k >= 4) throw new Error(`spent lookup ${p}: ${r.error}, then HTTP ${one.status}`);
+      }
+    }
+    await sleep(400);
+  }
+  await writeFile(f, JSON.stringify(Object.fromEntries(out)));
+  return out;
+}
+
 /** Twetch's token record for each number: { o: current outpoint "txid:vout", pending, owner }, or null when the
  *  lookup failed. Cached per day (a Twonk's output moves when it changes hands), so a stopped run resumes.
  *  Four lookups in flight, each worker pausing between calls: about 5 a second. */
@@ -114,7 +145,21 @@ async function check(fleet) {
     traitDiffs: [], // both have the trait, with different values
     offChainTraits: {}, // per trait type: how many Twonks have it on the site but not in their on-chain record
     rankDiffs: [], noStoredRank: 0, extraTypes: new Set(),
+    wrongTwonk: [], // the record in the output Twetch names carries another number
+    noNumber: 0, // records that store no number (Egg), so the output cannot be tied to the Twonk by its record
+    spent: [], spentBurned: 0, // outputs Twetch calls current that the chain says are already spent
   };
+  if (current) {
+    const alive = d.tok.map((r) => r[0]).filter((n) => where.has(n) && hex.get(where.get(n).tx));
+    const spent = await spentBy(fleet.c, alive.map((n) => `${where.get(n).tx}:${where.get(n).vout}`));
+    const gone = new Set(burned[fleet.c] || []);
+    for (const n of alive) {
+      const by = spent.get(`${where.get(n).tx}:${where.get(n).vout}`);
+      if (!by) continue;
+      if (gone.has(n)) res.spentBurned++;
+      else res.spent.push({ n, by });
+    }
+  }
   const parsed = new Map();
   for (const row of d.tok) {
     const n = row[0], at = where.get(n);
@@ -129,6 +174,8 @@ async function check(fleet) {
     } catch { /* unreadable transaction: counted as no record */ }
     if (!rec) { res.noRecord.push(n); continue; }
     res.onChain++;
+    if (rec.json.number == null) res.noNumber++;
+    else if (+rec.json.number !== n) res.wrongTwonk.push({ n, record: rec.json.number });
     const chain = new Map(traitsOf(rec.json).map((a) => [norm(a.type), norm(a.value)]));
     for (let t = 0; t < d.types.length; t++) {
       const v = row[T0 + t];
@@ -169,7 +216,7 @@ for (const f of index.fleets) {
     const r = await check(f);
     report.collections.push(r);
     const off = Object.entries(r.offChainTraits).map(([t, k]) => `${t} ${k}`).join(', ');
-    console.log(`${r.name.padEnd(18)} listed ${String(r.listed).padStart(5)}  on chain ${String(r.onChain).padStart(5)}  not on chain ${String(r.notOnChain.length).padStart(4)}${r.unexplained.length ? ` (${r.unexplained.length} NOT pending)` : ''}${r.burnedNoOutput.length ? `  burned, no output ${r.burnedNoOutput.length}` : ''}  no record ${String(r.noRecord.length).padStart(4)}${r.lookupFailed.length ? `  LOOKUP FAILED ${r.lookupFailed.length}` : ''}  value diffs ${String(r.traitDiffs.length).padStart(4)}  rank diffs ${String(r.rankDiffs.length).padStart(4)}${r.noStoredRank ? `  no stored rank ${r.noStoredRank}` : ''}${off ? `  site-only traits: ${off}` : ''}${r.extraTypes.length ? `  types only on chain: ${r.extraTypes.map((t) => JSON.stringify(t)).join(', ')}` : ''}`);
+    console.log(`${r.name.padEnd(18)} listed ${String(r.listed).padStart(5)}  on chain ${String(r.onChain).padStart(5)}  not on chain ${String(r.notOnChain.length).padStart(4)}${r.unexplained.length ? ` (${r.unexplained.length} NOT pending)` : ''}${r.burnedNoOutput.length ? `  burned, no output ${r.burnedNoOutput.length}` : ''}  no record ${String(r.noRecord.length).padStart(4)}${r.lookupFailed.length ? `  LOOKUP FAILED ${r.lookupFailed.length}` : ''}  value diffs ${String(r.traitDiffs.length).padStart(4)}  rank diffs ${String(r.rankDiffs.length).padStart(4)}${r.noStoredRank ? `  no stored rank ${r.noStoredRank}` : ''}${r.spent?.length ? `  STALE (output already spent) ${r.spent.length}` : ''}${r.spentBurned ? `  burned, output spent ${r.spentBurned}` : ''}${r.wrongTwonk.length ? `  WRONG TWONK ${r.wrongTwonk.length}` : ''}${r.noNumber ? `  no number on record ${r.noNumber}` : ''}${off ? `  site-only traits: ${off}` : ''}${r.extraTypes.length ? `  types only on chain: ${r.extraTypes.map((t) => JSON.stringify(t)).join(', ')}` : ''}`);
   } catch (e) {
     report.collections.push({ c: f.c, name: f.name, error: e.message });
     console.log(`${f.name.padEnd(18)} ERROR ${e.message}`);
@@ -180,7 +227,7 @@ for (const f of index.fleets) {
 
 // A complete, clean run refreshes the list the site shows (tools/chain-status.json): every Twonk the chain does not
 // know and Twetch marks pending. A run with errors or unexplained misses leaves the list as it was.
-const clean = want === 'all' && report.collections.every((c) => !c.error && !c.unexplained.length && !c.lookupFailed.length);
+const clean = want === 'all' && report.collections.every((c) => !c.error && !c.unexplained.length && !c.lookupFailed.length && !c.spent.length && !c.wrongTwonk.length);
 if (clean) {
   const notOnChain = {}, listingOnly = {};
   for (const c of report.collections) {
