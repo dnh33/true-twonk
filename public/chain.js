@@ -1,6 +1,7 @@
 // Read a Twonk's record straight from its blockchain transaction, so anyone can check it against the page.
 // A Twetch Twonk's output script is a lock, then OP_RETURN, then the record as one JSON push
-// ({"title", "number", "rank", "attributes": [{"trait_type", "value", "count", "rarity"}], ...}).
+// ({"title", "number", "rank", "attributes": [{"trait_type", "value", "count", "rarity"}], ...}). Not every
+// collection writes every field: NOOGIES stores no rank and names the key "trait"; Egg stores no number or traits.
 // Pure: works on raw transaction hex, in the browser and in tests.
 
 const hexBytes = (hex) => {
@@ -49,15 +50,27 @@ export function returnPushes(script) {
   return pushes;
 }
 
-/** The record written in output `vout` of the transaction, as { text, json }, or null when it holds none. */
-export function chainRecord(txHex, vout = 0) {
-  const out = outputs(txHex)[vout];
-  if (!out) return null;
+/** The record written in one output script (bytes or hex), as { text, json }, or null when it holds none. */
+export function scriptRecord(script) {
   const dec = new TextDecoder();
-  for (const push of returnPushes(out.script)) {
+  for (const push of returnPushes(typeof script === 'string' ? hexBytes(script) : script)) {
     const text = dec.decode(push);
     if (!text.trimStart().startsWith('{')) continue;
     try { return { text, json: JSON.parse(text) }; } catch { /* not JSON: keep looking */ }
   }
   return null;
+}
+
+/** The record written in output `vout` of the transaction, as { text, json }, or null when it holds none. */
+export function chainRecord(txHex, vout = 0) {
+  const out = outputs(txHex)[vout];
+  return out ? scriptRecord(out.script) : null;
+}
+
+/** The traits a record lists, as [{ type, value, count }]. Most collections write "trait_type"; NOOGIES writes
+ *  "trait". Values stay exactly as written (stray spaces included); count is null when the record stores none. */
+export function traitsOf(json) {
+  return (Array.isArray(json?.attributes) ? json.attributes : []).map((a) => ({
+    type: a.trait_type ?? a.trait ?? a.traitType ?? null, value: a.value, count: a.count ?? null,
+  }));
 }

@@ -219,6 +219,7 @@ h1 .q { margin-left: -.06em; }
 .chain-t td { padding: 6px 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
 .chain-t td:last-child, .chain-t th:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .chain-t tr.diff td { color: var(--bsv-light); background: color-mix(in srgb, var(--bsv) 10%, transparent); }
+.chain-t td.none { font-style: italic; }
 .chain-body .flag.hot { display: inline-block; }
 .chain-body .flag.hot code { color: inherit; font-weight: 700; }
 .chain .raw summary { color: var(--muted); font-weight: 400; }

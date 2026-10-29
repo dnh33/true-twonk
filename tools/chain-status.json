@@ -2,6 +2,9 @@
  "checked": "2026-10-29",
  "how": "Twetch token API marks it pending with no owner, and WhatsOnChain does not know its transaction (tools/chain-check.mjs)",
  "notOnChain": {
+  "af834baef0563d692a1942daaebea9e3e3a0a5843cbff7667d7776a530fef520": [
+   1033
+  ],
   "c8925e7b008668089d3ae1fc1cf450f7f45f0b4af43cd7d30b84446ecb374d6d": [
    514,
    637,
@@ -15,6 +18,18 @@
   ],
   "b792b25417195242664d2624fe28e39173d7026285a5282a4912a7b0405437b9": [
    1384
+  ],
+  "964a82d5d478eb7f6236e1c2ee6cb993c50b3131cd88b1d1330f6f125d31bb8d": [
+   514,
+   1456,
+   1550,
+   1571,
+   1598,
+   2671,
+   3078,
+   3413,
+   3482,
+   3488
   ]
  }
 }

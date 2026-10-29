@@ -2,7 +2,7 @@
 // Every figure comes from public/data, built from Twetch's API at build time (tools/build-data.mjs).
 // The only live requests are the Twonk images, straight from Twetch's media route, and the on-chain check a visitor
 // opens (Twetch's API for the current output, WhatsOnChain for the transaction).
-import { chainRecord } from '/chain.js';
+import { chainRecord, traitsOf } from '/chain.js';
 
 const MEDIA = 'https://api.twetch.com/v1/media/';
 const TIERS = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Exotic'];
@@ -125,17 +125,23 @@ async function factCheck(body, f, row) {
     const link = `<a href="https://whatsonchain.com/tx/${tx}" target="_blank" rel="noopener">${shortTx(tx)}</a>`;
     if (!rec) return say(`<p>Transaction ${link} (output ${+vout || 0}) holds no record.</p>`);
     const j = rec.json;
-    const attrs = Array.isArray(j.attributes) ? j.attributes : [];
+    const attrs = traitsOf(j);
     const ours = (type) => { const t = f.types.findIndex((x) => x.trim() === String(type).trim()); const v = t < 0 ? -1 : row[T0 + t]; return v >= 0 ? String(f.traits[t][v][0]) : null; };
-    const diffs = attrs.filter((a) => (ours(a.trait_type) ?? '').trim() !== String(a.value).trim());
+    const diffs = attrs.filter((a) => (ours(a.type) ?? '').trim() !== String(a.value).trim());
+    // traits True Twonk shows that this record does not hold at all (Twetch's listing has them, the chain does not)
+    const onChain = new Set(attrs.map((a) => String(a.type).trim()));
+    const siteOnly = f.types.filter((t) => !onChain.has(t.trim()) && ours(t) != null);
+    const names = (list) => list.map(esc).join(', ');
     const lit = (v) => `<code>${esc(JSON.stringify(v)).replace(/ +(?=&quot;$)/, (s) => ' '.repeat(s.length))}</code>`; // quoted, so stray spaces show; they hold the closing quote on their line
-    const rows = attrs.map((a) => `<tr${diffs.includes(a) ? ' class="diff"' : ''}><td>${esc(a.trait_type)}</td><td>${lit(a.value)}</td><td>${a.count != null ? fmt(a.count) : '–'}</td></tr>`).join('');
+    const rows = attrs.map((a) => `<tr${diffs.includes(a) ? ' class="diff"' : ''}><td>${esc(a.type)}</td><td>${lit(a.value)}</td><td>${a.count != null ? fmt(a.count) : '–'}</td></tr>`).join('')
+      + siteOnly.map((t) => `<tr class="diff"><td>${esc(t)}</td><td class="none">not in the record</td><td>–</td></tr>`).join('');
     const art = (f.art?.[n] || []).map(([type, record, shown]) => `<p class="flag hot">The art shows ${esc(shown)}; the chain says ${esc(type)} ${lit(record)}.</p>`).join('');
     say(`
       <p>Read just now from transaction ${link}, output ${+vout || 0}, via WhatsOnChain. This is the record as written on the blockchain.</p>
       <p class="chain-stored">Stored on chain: rank ${j.rank != null ? '#' + fmt(+j.rank) : 'none'}${j.rarity ? `, ${esc(j.rarity)}` : ''}${j.score != null ? `, score ${esc(j.score)}` : ''}.</p>
-      ${attrs.length ? `<table class="chain-t"><thead><tr><th>Trait</th><th>Value on chain</th><th>Count stored</th></tr></thead><tbody>${rows}</tbody></table>` : '<p>The record lists no traits.</p>'}
-      <p class="fine">${diffs.length ? `${diffs.length} trait${diffs.length === 1 ? '' : 's'} on chain differ${diffs.length === 1 ? 's' : ''} from the record True Twonk ranks by (marked).` : 'Every trait on chain matches the record True Twonk ranks by.'} The counts are as the record stores them; True Twonk recounts its own.</p>
+      ${rows ? `<table class="chain-t"><thead><tr><th>Trait</th><th>Value on chain</th><th>Count stored</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+      ${attrs.length ? '' : '<p>The record on chain lists no traits.</p>'}
+      <p class="fine">${diffs.length ? `On chain, ${names(diffs.map((a) => a.type))} differ${diffs.length === 1 ? 's' : ''} from what Twetch lists (marked). ` : attrs.length ? 'Every trait on chain matches what Twetch lists. ' : ''}${siteOnly.length ? `${names(siteOnly)} ${siteOnly.length === 1 ? 'is' : 'are'} in Twetch's listing but not in the on-chain record (marked). ` : ''}${attrs.some((a) => a.count != null) ? 'The counts are as the record stores them; True Twonk recounts its own.' : ''}</p>
       ${art}
       <details class="raw"><summary>The record, exactly as written</summary><pre>${esc(rec.text)}</pre></details>`);
   } catch (e) {
@@ -153,7 +159,7 @@ function showMisprints() {
       <span class="mp-t"><a href="/t/${esc(m.slug)}/${m.n}"><b>${esc(m.name)}</b></a>${m.name.includes('#') ? '' : ` <small>${esc(m.fleet)} #${m.n}</small>`}</span>
       <span class="mp-d">${m.kind === 'wrong'
         ? m.detail.map(([type, record, art]) => `${esc(type)}: the art shows ${esc(art)}, the record says ${esc(record)}.`).join(' ')
-        : `Not on chain. Twetch shows #${fmt(m.twetch)}.`}</span>
+        : `Not on chain. ${m.twetch ? `Twetch shows #${fmt(m.twetch)}.` : 'Twetch shows no rank.'}`}</span>
     </li>`;
   const group = (kind, title) => {
     const g = list.filter((m) => m.kind === kind);
@@ -168,7 +174,7 @@ function showMisprints() {
       <p class="fine">Found by comparing each Twonk's art with its record, then checked by eye. Checked: ${misprints.checked.length} of ${misprints.of} collections, the pixel-art ones (${esc(misprints.checked.join(', '))}). The other ${misprints.of - misprints.checked.length} are not pixel art, which this check cannot read, so they may hold misprints not listed here.</p>
       ${(misprints.offChain || []).length ? `
       <h3>Not on the blockchain (${misprints.offChain.length})</h3>
-      <p class="fine">Not misprints: there is no on-chain record to misprint. Twetch lists these Twonks and shows a rank for them, but marks them pending with no owner, and no transaction exists for them (checked ${day(misprints.chainChecked)}).</p>
+      <p class="fine">Not misprints: there is no on-chain record to misprint. Twetch lists these Twonks, and shows a rank for some of them, but marks them pending with no owner, and no transaction exists for them (checked ${day(misprints.chainChecked)}).</p>
       <ul class="mps">${misprints.offChain.map((m) => item({ ...m, kind: 'off' })).join('')}</ul>` : ''}
     </div>`;
   document.title = 'Misprints · True Twonk';

@@ -8,7 +8,7 @@
 // Writes audit/chain-check.json and prints a summary per collection.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { chainRecord } from '../public/chain.js';
+import { outputs, scriptRecord, traitsOf } from '../public/chain.js';
 
 const args = process.argv.slice(2);
 const want = args[0] && !args[0].startsWith('--') ? args[0] : 'all';
@@ -72,25 +72,39 @@ async function check(fleet) {
   const list = (await getJson(`https://api.twetch.com/v1/market/collections/${fleet.c}/tokens?all=1`)).data;
   const where = new Map(list.filter((t) => t.outpoint).map((t) => [t.number, outpoint(t.outpoint)]));
   const hex = await txHex([...new Set([...where.values()].map((o) => o.tx))]);
-  const res = { name: d.name, listed: list.length, onChain: 0, notOnChain: [], noRecord: [], traitDiffs: [], rankDiffs: [], extraTypes: new Set() };
+  const res = {
+    c: fleet.c, name: d.name, listed: list.length, onChain: 0, notOnChain: [], noRecord: [],
+    traitDiffs: [], // both have the trait, with different values
+    offChainTraits: {}, // per trait type: how many Twonks have it on the site but not in their on-chain record
+    rankDiffs: [], noStoredRank: 0, extraTypes: new Set(),
+  };
+  const parsed = new Map();
   for (const row of d.tok) {
     const n = row[0], at = where.get(n);
     const h = at && hex.get(at.tx);
     if (!h) { res.notOnChain.push(n); continue; }
     let rec = null;
-    try { rec = chainRecord(h, at.vout); } catch { /* unreadable transaction: counted as no record */ }
+    try {
+      // parse each transaction once: one NOOGIES transaction (5.8 MB) holds all 10,000
+      if (!parsed.has(at.tx)) parsed.set(at.tx, outputs(h));
+      const out = parsed.get(at.tx)[at.vout];
+      rec = out ? scriptRecord(out.script) : null;
+    } catch { /* unreadable transaction: counted as no record */ }
     if (!rec) { res.noRecord.push(n); continue; }
     res.onChain++;
-    const chain = new Map((rec.json.attributes || []).map((a) => [norm(a.trait_type), norm(a.value)]));
+    const chain = new Map(traitsOf(rec.json).map((a) => [norm(a.type), norm(a.value)]));
     for (let t = 0; t < d.types.length; t++) {
       const v = row[T0 + t];
       const ours = v >= 0 ? norm(d.traits[t][v][0]) : null;
       const theirs = chain.has(norm(d.types[t])) ? chain.get(norm(d.types[t])) : null;
-      if (ours !== theirs) res.traitDiffs.push({ n, type: d.types[t], site: ours, chain: theirs });
+      if (ours === theirs) continue;
+      if (ours !== null && theirs === null) res.offChainTraits[d.types[t]] = (res.offChainTraits[d.types[t]] || 0) + 1;
+      else res.traitDiffs.push({ n, type: d.types[t], site: ours, chain: theirs });
     }
     for (const k of chain.keys()) if (!d.types.some((t) => norm(t) === k)) res.extraTypes.add(k);
     const printed = row[1] || null, stored = rec.json.rank ?? null;
-    if (printed !== stored && !(printed == null && stored == null)) res.rankDiffs.push({ n, twetch: printed, chain: stored });
+    if (stored == null) res.noStoredRank++;
+    else if (printed !== stored) res.rankDiffs.push({ n, twetch: printed, chain: stored });
   }
   res.extraTypes = [...res.extraTypes];
   // a Twonk the chain does not know must also be one Twetch marks pending; anything else is a lookup to re-check
@@ -112,11 +126,29 @@ for (const f of index.fleets) {
   try {
     const r = await check(f);
     report.collections.push(r);
-    console.log(`${r.name.padEnd(18)} listed ${String(r.listed).padStart(5)}  on chain ${String(r.onChain).padStart(5)}  not on chain ${String(r.notOnChain.length).padStart(4)}${r.unexplained.length ? ` (${r.unexplained.length} NOT pending)` : ""}  no record ${String(r.noRecord.length).padStart(4)}  trait diffs ${String(r.traitDiffs.length).padStart(5)}  rank diffs ${String(r.rankDiffs.length).padStart(5)}${r.extraTypes.length ? `  types only on chain: ${r.extraTypes.join(', ')}` : ''}`);
+    const off = Object.entries(r.offChainTraits).map(([t, k]) => `${t} ${k}`).join(', ');
+    console.log(`${r.name.padEnd(18)} listed ${String(r.listed).padStart(5)}  on chain ${String(r.onChain).padStart(5)}  not on chain ${String(r.notOnChain.length).padStart(4)}${r.unexplained.length ? ` (${r.unexplained.length} NOT pending)` : ''}  no record ${String(r.noRecord.length).padStart(4)}  value diffs ${String(r.traitDiffs.length).padStart(4)}  rank diffs ${String(r.rankDiffs.length).padStart(4)}${r.noStoredRank ? `  no stored rank ${r.noStoredRank}` : ''}${off ? `  site-only traits: ${off}` : ''}${r.extraTypes.length ? `  types only on chain: ${r.extraTypes.map((t) => JSON.stringify(t)).join(', ')}` : ''}`);
   } catch (e) {
-    report.collections.push({ name: f.name, error: e.message });
+    report.collections.push({ c: f.c, name: f.name, error: e.message });
     console.log(`${f.name.padEnd(18)} ERROR ${e.message}`);
   }
   await writeFile(new URL('chain-check.json', OUT), JSON.stringify(report, null, 1));
   await sleep(1500);
 }
+
+// A complete, clean run refreshes the list the site shows (tools/chain-status.json): every Twonk the chain does not
+// know and Twetch marks pending. A run with errors or unexplained misses leaves the list as it was.
+const clean = want === 'all' && report.collections.every((c) => !c.error && !c.unexplained.length);
+if (clean) {
+  const notOnChain = {};
+  for (const c of report.collections) {
+    const nums = c.notOnChain.filter((x) => x.pending).map((x) => x.n);
+    if (nums.length) notOnChain[c.c] = nums;
+  }
+  await writeFile(new URL('./chain-status.json', import.meta.url), `${JSON.stringify({
+    checked: report.at.slice(0, 10),
+    how: 'Twetch token API marks it pending with no owner, and WhatsOnChain does not know its transaction (tools/chain-check.mjs)',
+    notOnChain,
+  }, null, 1)}\n`);
+  console.log(`tools/chain-status.json refreshed: ${Object.values(notOnChain).flat().length} Twonks not on chain`);
+} else if (want === 'all') console.log('tools/chain-status.json NOT refreshed: the run had errors or unexplained misses');
