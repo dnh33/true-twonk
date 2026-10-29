@@ -194,20 +194,66 @@ h1 .q { margin-left: -.06em; }
 .ranks.three .misp { grid-column: 1 / -1; }
 .r.misp { border-color: color-mix(in srgb, var(--bsv-light) 40%, var(--line)); }
 .r.misp b { color: var(--bsv-light); font-size: min(2.6rem, 7.5cqi); }
-.misprints { max-width: 860px; }
-.misprints h2 { margin: 0 0 10px; font: 800 clamp(1.6rem, 3vw, 2.2rem)/1.1 var(--display); }
+.misprints { max-width: 920px; }
+.misprints h2 { margin: 0 0 10px; font: 800 clamp(1.8rem, 3.4vw, 2.6rem)/1.05 var(--display); letter-spacing: -.02em; }
 .misprints h2 + p { margin: 0; max-width: 62ch; color: var(--muted); text-wrap: pretty; }
-.misprints h3 + p { margin: 0 0 12px; max-width: 62ch; color: var(--muted); text-wrap: pretty; }
-.misprints h3 { margin: 26px 0 10px; font: 600 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
-.mps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.mp { display: grid; grid-template-columns: 64px 1fr; grid-template-rows: auto auto; column-gap: 14px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); }
-.mp > a:first-child { grid-row: span 2; }
-.mp img { width: 64px; height: 64px; border-radius: 8px; image-rendering: pixelated; display: block; }
-.mp a { text-decoration: none; }
-.mp-t b { color: var(--ink); }
-.mp a:hover b, .mp a:focus-visible b { color: var(--bsv-light); text-decoration: underline; text-underline-offset: 3px; }
-.mp-t small, .mp-d { color: var(--muted); font-size: .88rem; }
-.mp-d a.ev { color: var(--bsv-light); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.misprints section { margin-top: 40px; scroll-margin-top: 16px; }
+.misprints h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font: 800 clamp(1.2rem, 2.2vw, 1.45rem)/1.2 var(--display); letter-spacing: -.01em; color: var(--ink); }
+.misprints h3 span { font: 600 12px/1 var(--mono); color: var(--bg); background: var(--bsv); padding: 5px 8px; border-radius: 999px; font-variant-numeric: tabular-nums; }
+.misprints .lede { margin: 0 0 16px; max-width: 62ch; color: var(--muted); text-wrap: pretty; }
+/* jump to a section; the page keeps its #misprints address, so these scroll instead of linking */
+.mp-jump { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.mp-jump button { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font: 600 .9rem var(--sans); cursor: pointer; transition: border-color .2s var(--ease), background .2s var(--ease); }
+.mp-jump button span { font: 600 12px var(--mono); color: var(--bsv-light); font-variant-numeric: tabular-nums; }
+.mp-jump button:hover { border-color: var(--bsv); background: var(--raised); }
+/* a lot: the art, where the flaw sits, the flaw up close beside a normal one, and the fact */
+.lots { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.lot { display: grid; grid-template-columns: clamp(120px, 24%, 210px) 1fr; grid-template-areas: "art head" "art spot" "art fact"; grid-template-rows: auto auto 1fr; column-gap: 22px; row-gap: 14px; padding: 18px; border-radius: 16px; background: var(--raised); border: 1px solid var(--line); }
+.lot-art { grid-area: art; position: relative; align-self: start; display: block; border-radius: 12px; overflow: hidden; }
+.lot-art img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.lot-art img.px, .zoom.px { image-rendering: pixelated; }
+.ring { position: absolute; left: var(--x); top: var(--y); width: var(--s); aspect-ratio: 1; transform: translate(-50%, -50%); border: 2px solid var(--bsv); border-radius: 10px; box-shadow: 0 0 0 999px color-mix(in srgb, var(--bg) 38%, transparent); pointer-events: none; }
+.lot-head { grid-area: head; min-width: 0; }
+.lot-head h4 { margin: 0; font: 800 1.25rem/1.2 var(--display); }
+.lot-head h4 a { color: var(--ink); text-decoration: none; }
+.lot-head h4 a:hover { color: var(--bsv-light); text-decoration: underline; }
+.lot-head p { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 6px 0 0; color: var(--muted); font-size: .9rem; }
+.tag { padding: 3px 9px; border-radius: 6px; font: 650 .78rem/1.3 var(--sans); white-space: nowrap; color: var(--bg); background: var(--bsv); }
+.tag.soft { color: var(--bsv-light); background: color-mix(in srgb, var(--bsv) 14%, transparent); }
+.lot-spot { grid-area: spot; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 460px; }
+.lot-spot figure { margin: 0; min-width: 0; }
+.zoom { aspect-ratio: 1; border-radius: 12px; background-color: var(--panel); background-repeat: no-repeat; background-size: var(--z); background-position: var(--px) var(--py); border: 1px solid var(--line); }
+.lot-spot figure:first-child .zoom { border: 2px solid var(--bsv); }
+.lot-spot figcaption { margin-top: 6px; font-size: .82rem; color: var(--muted); line-height: 1.35; }
+.lot-spot figure:first-child figcaption { color: var(--bsv-light); font-weight: 600; }
+.typo { grid-template-columns: 1fr; gap: 8px; }
+.typo div { display: grid; gap: 2px; padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+.typo span { font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.typo b { font: 800 clamp(1.3rem, 3vw, 1.7rem)/1.2 var(--display); letter-spacing: -.01em; }
+.typo mark { color: var(--bg); background: var(--bsv); border-radius: 4px; padding: 0 2px; }
+.typo .gap { display: inline-block; width: 3px; height: .9em; margin: 0 2px; vertical-align: -.06em; border-radius: 2px; background: var(--bsv); }
+.lot-fact { grid-area: fact; align-self: end; }
+.lot-fact p { margin: 0; max-width: 60ch; color: var(--ink); text-wrap: pretty; }
+.lot-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px !important; font-size: .9rem; }
+.lot-links a { color: var(--bsv-light); }
+/* the moment: each close-up starts on the whole picture and closes in on the flaw */
+.result.in .zoom { animation: closein 1.1s var(--ease) .25s both; }
+@keyframes closein { from { background-size: 100%; background-position: 50% 50%; } }
+.misprints .how { margin-top: 14px; }
+.misprints .how p { margin: 8px 0 0; }
+/* not on chain: a quiet contact sheet, these are not misprints */
+.offs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 10px; }
+.offs a { display: grid; gap: 2px; padding: 8px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line-soft); text-decoration: none; transition: border-color .2s var(--ease); }
+.offs a:hover { border-color: var(--bsv); }
+.offs img { width: 100%; aspect-ratio: 1; border-radius: 8px; display: block; margin-bottom: 6px; image-rendering: pixelated; }
+.offs b { color: var(--ink); font-size: .88rem; font-weight: 600; }
+.offs small { color: var(--dim); font: 12px var(--mono); font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .lot { grid-template-columns: 92px 1fr; grid-template-areas: "art head" "spot spot" "fact fact"; grid-template-rows: auto; padding: 14px; column-gap: 14px; }
+  .lot-spot { max-width: none; }
+  .offs { grid-template-columns: repeat(3, 1fr); }
+  .offs b { font-size: .8rem; }
+}
 .err .tries, a.tries { display: inline-block; margin-left: 6px; }
 
 /* check it on the blockchain */

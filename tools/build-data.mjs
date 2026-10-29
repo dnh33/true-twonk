@@ -31,6 +31,9 @@ const spellingFlags = JSON.parse(await readFile(new URL('./spelling-flags.json',
 // { collection address: { number: [[upper type, value, lower type, value, what is odd]] } }: layer clashes, two parts that
 // overlap oddly because of the drawing order. Not misprints (the record matches the art); same review gate.
 const layerClashes = JSON.parse(await readFile(new URL('./layer-clashes.json', import.meta.url), 'utf8'));
+// { "<slug>/<number>": { at: [x, y] as fractions, zoom, pixel, usual: number of a Twonk showing the normal look,
+// usualLabel } }: where the flaw sits, so the misprints page can zoom in on it beside the same spot on a normal one
+const focus = JSON.parse(await readFile(new URL('./misprint-focus.json', import.meta.url), 'utf8'));
 const reviews = JSON.parse(await readFile(new URL('./misprint-reviews.json', import.meta.url), 'utf8'));
 const approved = (fleetName, n) => {
   const r = reviews[`${fleetName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}/${n}`];
@@ -149,6 +152,13 @@ for (const [c, toks] of Object.entries(liveFlags)) {
     const row = doc.tok.find((r) => r[0] === +n);
     misprints.push({ c, slug: fleet.slug, fleet: fleet.name, n: +n, name: doc.names[n], image: row[3], twetch: row[1], kind: 'spelling', detail: list });
   }
+}
+for (const m of misprints) {
+  const fo = focus[`${m.slug}/${m.n}`];
+  if (!fo) continue;
+  const doc = JSON.parse(await readFile(new URL(`${m.c}.json`, OUT), 'utf8'));
+  const usual = doc.tok.find((r) => r[0] === fo.usual);
+  m.focus = { at: fo.at, zoom: fo.zoom, pixel: !!fo.pixel, usual: usual ? { n: fo.usual, image: usual[3], label: fo.usualLabel } : null };
 }
 const KINDS = ['wrong', 'spelling', 'blank', 'clash'];
 misprints.sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind) || a.fleet.localeCompare(b.fleet) || a.n - b.n);

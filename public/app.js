@@ -163,45 +163,93 @@ async function factCheck(body, f, row) {
   }
 }
 
+// the letters two spellings do not share, marked: the name gets <mark> on letters the record lacks, the record gets a
+// caret where they are missing (a plain longest-common-subsequence walk; trait names are short)
+function spellDiff(record, name) {
+  const a = [...record], b = [...name];
+  const L = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  let i = 0, j = 0, ra = '', nb = '';
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) { ra += esc(a[i++]); nb += esc(b[j++]); }
+    else if (j < b.length && (i >= a.length || L[i][j + 1] >= L[i + 1][j])) { ra += '<i class="gap" aria-hidden="true"></i>'; nb += `<mark>${esc(b[j++])}</mark>`; }
+    else { ra += `<mark>${esc(a[i++])}</mark>`; }
+  }
+  return [ra, nb];
+}
+// a square zoomed onto one spot of a Twonk's art: background-position puts the point (x, y) in the middle
+const zoomTile = (image, [x, y], z, pixel, caption) => {
+  const at = (f) => `${Math.min(100, Math.max(0, ((f * z - 0.5) / (z - 1)) * 100)).toFixed(1)}%`;
+  return `<figure><div class="zoom${pixel ? ' px' : ''}" role="img" aria-label="${esc(caption)}, enlarged" style="background-image:url('${MEDIA}${image}');--z:${z * 100}%;--px:${at(x)};--py:${at(y)}"></div><figcaption>${caption}</figcaption></figure>`;
+};
 const ev0 = (f, row) => misprints?.misprints.find((m) => m.c === f.c && m.n === row[0] && m.kind === 'clash')?.evidence;
 function showMisprints() {
   if (!misprints) return;
   const list = misprints.misprints;
-  const item = (m) => `
-    <li class="mp">
-      <a href="/t/${esc(m.slug)}/${m.n}">${m.image ? `<img src="${MEDIA}${m.image}" alt="${esc(m.name)}" loading="lazy" decoding="async">` : ''}</a>
-      <span class="mp-t"><a href="/t/${esc(m.slug)}/${m.n}"><b>${esc(m.name)}</b></a>${m.name.includes('#') ? '' : ` <small>${esc(m.fleet)} #${m.n}</small>`}</span>
-      <span class="mp-d">${{ wrong: 'Wrong trait. ', spelling: 'Misspelled trait. ', blank: 'Blank record. ' }[m.kind] || ''}${m.kind === 'wrong'
-        ? (m.custom ? 'A Signature 1-of-1 (custom art). ' : '') + m.detail.map(([type, record, art]) => `${esc(type)}: the art shows ${esc(art)}, the record says ${esc(record)}.`).join(' ')
-          + (m.evidence ? ` <a class="ev" href="${esc(m.evidence)}" target="_blank" rel="noopener">See the comparison</a>` : '')
-        : m.kind === 'clash'
-          ? m.detail.map(([a, av, b, bv, what]) => `${esc(a)} ${esc(av)} with ${esc(b)} ${esc(bv)}: ${esc(what)}.`).join(' ')
-            + (m.evidence ? ` <a class="ev" href="${esc(m.evidence)}" target="_blank" rel="noopener">See the comparison</a>` : '')
-        : m.kind === 'spelling'
-          ? m.detail.map(([type, record, name]) => `${esc(type)}: the record spells it “${esc(record)}”; its own name is “${esc(name)}”.`).join(' ')
-          : `Not on chain. ${m.twetch ? `Twetch shows #${fmt(m.twetch)}.` : 'Twetch shows no rank.'}`}</span>
-    </li>`;
+  const KINDNAME = { wrong: 'Wrong trait', spelling: 'Misspelled trait', blank: 'Blank record', clash: 'Layer clash' };
+  const fact = (m) => m.kind === 'wrong'
+    ? m.detail.map(([type, record, art]) => `${esc(type)}: the art shows ${esc(art)}, the record says ${esc(record)}.`).join(' ')
+    : m.kind === 'clash'
+      ? m.detail.map(([a, av, b, bv, what]) => `${esc(a)} ${esc(av)} with ${esc(b)} ${esc(bv)}: ${esc(what)}.`).join(' ')
+      : m.kind === 'spelling'
+        ? m.detail.map(([type, record, name]) => `${esc(type)}: the record spells it “${esc(record)}”; its own name is “${esc(name)}”.`).join(' ')
+        : 'The record lists no traits.';
+  const lot = (m) => {
+    const fo = m.focus;
+    const href = `/t/${esc(m.slug)}/${m.n}`;
+    const spot = fo
+      ? `<div class="lot-spot">${zoomTile(m.image, fo.at, fo.zoom, fo.pixel, 'This one')}${fo.usual ? zoomTile(fo.usual.image, fo.at, fo.zoom, fo.pixel, `Usually: ${esc(fo.usual.label)} (#${fo.usual.n})`) : ''}</div>`
+      : m.kind === 'spelling'
+        ? `<div class="lot-spot typo">${m.detail.map(([, record, name]) => { const [r, n] = spellDiff(String(record).trim(), String(name).trim()); return `<div><span>On its record</span><b>${r}</b></div><div><span>Its own name</span><b>${n}</b></div>`; }).join('')}</div>`
+        : '';
+    return `
+      <li class="lot">
+        <a class="lot-art" href="${href}" aria-label="Open ${esc(m.name)}">${m.image ? `<img src="${MEDIA}${m.image}" alt="" loading="lazy" decoding="async"${fo?.pixel ? ' class="px"' : ''}>` : ''}${fo ? `<span class="ring" style="--x:${fo.at[0] * 100}%;--y:${fo.at[1] * 100}%;--s:${(100 / fo.zoom).toFixed(1)}%"></span>` : ''}</a>
+        <div class="lot-head">
+          <h4><a href="${href}">${esc(m.name)}</a></h4>
+          <p>${m.name.includes('#') ? '' : `<span>${esc(m.fleet)} #${m.n}</span>`}<span class="tag">${KINDNAME[m.kind]}</span>${m.custom ? '<span class="tag soft">Signature 1-of-1 (custom art)</span>' : ''}</p>
+        </div>
+        ${spot}
+        <div class="lot-fact">
+          <p>${fact(m)}</p>
+          <p class="lot-links">${m.evidence ? `<a href="${esc(m.evidence)}" target="_blank" rel="noopener">See the full comparison</a>` : ''}<a href="${href}">Open its page</a></p>
+        </div>
+      </li>`;
+  };
+  const off = (m) => `
+    <li><a href="/t/${esc(m.slug)}/${m.n}">${m.image ? `<img src="${MEDIA}${m.image}" alt="" loading="lazy" decoding="async">` : ''}<b>${esc(m.fleet)} #${m.n}</b><small>${m.twetch ? `Twetch shows #${fmt(m.twetch)}` : 'Twetch shows no rank'}</small></a></li>`;
   const record = list.filter((m) => m.kind !== 'clash');
   const clashes = list.filter((m) => m.kind === 'clash');
+  const offChain = misprints.offChain || [];
+  const jumps = [[record.length, 'Record misprints', 'mp-record'], [clashes.length, 'Art misprints', 'mp-art'], [offChain.length, 'Not on chain', 'mp-off']].filter(([n]) => n);
   const out = $('#result');
   out.innerHTML = `
     <div class="misprints">
       <h2>Misprints</h2>
       <p>Twetch collectors use “misprint” for a Twonk with a flaw in its record or its art. Neither Twetch nor the creators have published a definition. This page lists two kinds. They are shown here, not ranked: True Twonk ranks every Twonk by its record.</p>
-      ${record.length ? `<h3>Record misprints (${record.length})</h3>
-      <p>The on-chain record does not match the art, or spells a trait differently from the Twonk's own name.</p>
-      <ul class="mps">${record.map(item).join('')}</ul>` : ''}
-      ${list.some((m) => m.kind === 'wrong') ? `<p class="fine">Wrong traits are found by comparing each Twonk's art with its record. Each one is then checked by eye, confirmed by a second reviewer who sees only the comparison, and approved before it is listed. Checked: ${misprints.checked.length} of ${misprints.of} collections, the pixel-art ones (${esc(misprints.checked.join(', '))}). The other ${misprints.of - misprints.checked.length} are not pixel art, which this check cannot read, so they may hold misprints not listed here.</p>` : ''}
-      ${list.some((m) => m.kind === 'spelling') ? `<p class="fine">Misspelled traits are found by comparing every named Twonk's traits with its own name, in all ${misprints.of} collections: a trait one or two letters off the name.</p>` : ''}
-      ${clashes.length ? `<h3>Art misprints: layer clashes (${clashes.length})</h3>
-      <p>The record matches the art. Two parts overlap oddly because of the order the parts are drawn in, and only in one trait pairing.</p>
-      <ul class="mps">${clashes.map(item).join('')}</ul>
-      <p class="fine">Each one is checked by eye, confirmed by a second reviewer who sees only the comparison, and approved before it is listed.</p>` : ''}
-      ${(misprints.offChain || []).length ? `
-      <h3>Not on the blockchain (${misprints.offChain.length})</h3>
-      <p class="fine">Not counted as misprints: there is no on-chain record to check. Twetch lists these Twonks, and shows a rank for some of them, but marks them pending with no owner, and no transaction exists for them (checked ${day(misprints.chainChecked)}).</p>
-      <ul class="mps">${misprints.offChain.map((m) => item({ ...m, kind: 'off' })).join('')}</ul>` : ''}
+      <nav class="mp-jump" aria-label="Sections">${jumps.map(([n, label, id]) => `<button type="button" data-to="${id}">${label}<span>${n}</span></button>`).join('')}</nav>
+      ${record.length ? `<section id="mp-record">
+        <h3>Record misprints <span>${record.length}</span></h3>
+        <p class="lede">The on-chain record does not match the art, or spells a trait differently from the Twonk's own name.</p>
+        <ol class="lots">${record.map(lot).join('')}</ol>
+        <details class="how"><summary>How these are found</summary>
+          ${list.some((m) => m.kind === 'wrong') ? `<p>Wrong traits are found by comparing each Twonk's art with its record. Each one is then checked by eye, confirmed by a second reviewer who sees only the comparison, and approved before it is listed. Checked: ${misprints.checked.length} of ${misprints.of} collections, the pixel-art ones (${esc(misprints.checked.join(', '))}). The other ${misprints.of - misprints.checked.length} are not pixel art, which this check cannot read, so they may hold misprints not listed here.</p>` : ''}
+          ${list.some((m) => m.kind === 'spelling') ? `<p>Misspelled traits are found by comparing every named Twonk's traits with its own name, in all ${misprints.of} collections: a trait one or two letters off the name.</p>` : ''}
+        </details>
+      </section>` : ''}
+      ${clashes.length ? `<section id="mp-art">
+        <h3>Art misprints: layer clashes <span>${clashes.length}</span></h3>
+        <p class="lede">The record matches the art. Two parts overlap oddly because of the order the parts are drawn in, and only in one trait pairing.</p>
+        <ol class="lots">${clashes.map(lot).join('')}</ol>
+        <details class="how"><summary>How these are found</summary><p>Each one is checked by eye, confirmed by a second reviewer who sees only the comparison, and approved before it is listed.</p></details>
+      </section>` : ''}
+      ${offChain.length ? `<section id="mp-off">
+        <h3>Not on the blockchain <span>${offChain.length}</span></h3>
+        <p class="lede">Not counted as misprints: there is no on-chain record to check. Twetch lists these Twonks, and shows a rank for some of them, but marks them pending with no owner, and no transaction exists for them (checked ${day(misprints.chainChecked)}).</p>
+        <ul class="offs">${offChain.map(off).join('')}</ul>
+      </section>` : ''}
     </div>`;
+  out.querySelectorAll('.mp-jump button').forEach((b) => b.addEventListener('click', () => document.getElementById(b.dataset.to)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })));
   document.title = 'Misprints · True Twonk';
   show();
 }
