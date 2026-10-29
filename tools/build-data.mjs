@@ -22,6 +22,7 @@ const byName = new Map(raws.map((r) => [r.name, r]));
 const consumed = JSON.parse(await readFile(new URL('./burned.json', import.meta.url), 'utf8'));
 // { collection address: { number: [[trait type, value on record, value the art shows], ...] } }
 const artFlags = JSON.parse(await readFile(new URL('./art-flags.json', import.meta.url), 'utf8'));
+const liveFlags = {}; // the flags whose records still match, per collection
 const successors = { 'Frog Cartel': ['Graveyard', 'Apu Cartel'] };
 const burnedIn = new Map();
 for (const raw of raws) {
@@ -40,8 +41,19 @@ for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
   if (!raw.tok.length || !raw.types.length) continue;
   const best = readMethod(decodeFleet(raw)).best;
   const doc = trueFleet(raw, { method: best ? best.method : 'info', burned: burnedIn.get(raw.name) });
-  // art that disagrees with the on-chain record, checked by eye after tools/audit_art.py flagged it; shown, never ranked
-  doc.art = artFlags[raw.c] || {};
+  // art that disagrees with the on-chain record, checked by eye after tools/audit_art.py flagged it; shown, never ranked.
+  // A note is kept only while the record still says what the note claims: if Twetch fixes a record, the note goes.
+  doc.art = {};
+  for (const [n, list] of Object.entries(artFlags[raw.c] || {})) {
+    const row = doc.tok.find((r) => r[0] === +n);
+    const still = row && list.filter(([type, record]) => {
+      const t = doc.types.indexOf(type), v = t < 0 ? -1 : row[8 + t];
+      return record === '(none)' ? v < 0 : v >= 0 && String(doc.traits[t][v][0]).trim() === record.trim();
+    });
+    if (still?.length === list.length) doc.art[n] = list;
+    else console.warn(`art flag dropped: ${raw.name} #${n}, its record no longer says what tools/art-flags.json claims; re-run tools/audit_art.py`);
+  }
+  liveFlags[raw.c] = doc.art;
   if (doc.n < 2) continue;
   const body = JSON.stringify(doc);
   await writeFile(new URL(`${raw.c}.json`, OUT), body);
@@ -67,7 +79,7 @@ await writeFile(new URL('index.json', OUT), JSON.stringify({ v: 1, at: Math.max(
 // The misprints gallery: every reviewed record/art mismatch. "wrong" = the record names a trait the art does not show;
 // "blank" = the record lists no traits at all while the art is a full Twonk (Twetch still prints a rank for it).
 const misprints = [];
-for (const [c, toks] of Object.entries(artFlags)) {
+for (const [c, toks] of Object.entries(liveFlags)) {
   const fleet = index.find((f) => f.c === c);
   const doc = JSON.parse(await readFile(new URL(`${c}.json`, OUT), 'utf8'));
   for (const [n, list] of Object.entries(toks)) {
