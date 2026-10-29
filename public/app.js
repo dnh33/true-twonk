@@ -169,6 +169,7 @@ function showMisprints() {
       <span class="mp-t"><a href="/t/${esc(m.slug)}/${m.n}"><b>${esc(m.name)}</b></a>${m.name.includes('#') ? '' : ` <small>${esc(m.fleet)} #${m.n}</small>`}</span>
       <span class="mp-d">${m.kind === 'wrong'
         ? m.detail.map(([type, record, art]) => `${esc(type)}: the art shows ${esc(art)}, the record says ${esc(record)}.`).join(' ')
+          + (m.evidence ? ` <a class="ev" href="${esc(m.evidence)}" target="_blank" rel="noopener">See the comparison</a>` : '')
         : m.kind === 'spelling'
           ? m.detail.map(([type, record, name]) => `${esc(type)}: the record spells it “${esc(record)}”; its own name is “${esc(name)}”.`).join(' ')
           : `Not on chain. ${m.twetch ? `Twetch shows #${fmt(m.twetch)}.` : 'Twetch shows no rank.'}`}</span>
@@ -183,7 +184,7 @@ function showMisprints() {
       <h2>Misprints</h2>
       <p>A misprint is a Twonk whose on-chain record does not match its art, or misspells its own name. Like misprinted banknotes, they can be collected as a tier of their own. They are shown here, not ranked: True Twonk ranks every Twonk by its record.</p>
       ${group('wrong', 'Wrong trait')}
-      <p class="fine">Found by comparing each Twonk's art with its record, then checked by eye. Checked: ${misprints.checked.length} of ${misprints.of} collections, the pixel-art ones (${esc(misprints.checked.join(', '))}). The other ${misprints.of - misprints.checked.length} are not pixel art, which this check cannot read, so they may hold misprints not listed here.</p>
+      <p class="fine">Found by comparing each Twonk's art with its record. Each one is then checked by eye, confirmed by a second reviewer who sees only the comparison, and approved before it is listed. Checked: ${misprints.checked.length} of ${misprints.of} collections, the pixel-art ones (${esc(misprints.checked.join(', '))}). The other ${misprints.of - misprints.checked.length} are not pixel art, which this check cannot read, so they may hold misprints not listed here.</p>
       ${group('spelling', 'Misspelled trait')}
       ${list.some((m) => m.kind === 'spelling') ? `<p class="fine">Found by comparing every named Twonk's traits with its own name, in all ${misprints.of} collections: a trait one or two letters off the name.</p>` : ''}
       ${(misprints.offChain || []).length ? `
@@ -231,7 +232,8 @@ function traitRows(f, row) {
     const seen = (f.art?.[row[0]] || []).find(([type]) => type === f.types[t]);
     const typo2 = (f.spelling?.[row[0]] || []).find(([type]) => type === f.types[t]);
     if (typo2) notes.push(`<span class="flag hot">Spelled “${esc(typo2[1])}” on chain. Its own name is “${esc(typo2[2])}”. Ranked by the record.</span>`);
-    if (seen) notes.push(`<span class="flag hot">The art shows ${esc(seen[2])}. The on-chain record says ${esc(seen[1])}. Ranked by the record.</span>`);
+    const ev = seen && misprintOf(f, row[0])?.evidence;
+    if (seen) notes.push(`<span class="flag hot">The art shows ${esc(seen[2])}. The on-chain record says ${esc(seen[1])}. Ranked by the record.${ev ? ` <a href="${esc(ev)}" target="_blank" rel="noopener">See the comparison</a>` : ''}</span>`);
     rows.push({ c, html: `
       <li class="lozenge trait">
         <span class="tt">${esc(f.types[t])}</span>

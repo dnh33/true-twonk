@@ -3,6 +3,7 @@
 // Run: node tools/build-data.mjs [path to tetro]
 import { readFile, writeFile, mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { trueFleet, misspelled } from './true-rank.mjs';
 import { SHARE_BUCKET } from '../src/card.mjs';
@@ -25,6 +26,15 @@ const artFlags = JSON.parse(await readFile(new URL('./art-flags.json', import.me
 const liveFlags = {}; // the flags whose records still match, per collection
 // { collection address: { number: [[trait type, value on record, the Twonk's name]] } }: misspellings checked by eye
 const spellingFlags = JSON.parse(await readFile(new URL('./spelling-flags.json', import.meta.url), 'utf8'));
+// { "<slug>/<number>": { evidence, secondLook, ownerOk } }: a misprint reaches the site only after an independent second
+// look agrees (given only the evidence, never the first verdict) and the owner has said yes
+const reviews = JSON.parse(await readFile(new URL('./misprint-reviews.json', import.meta.url), 'utf8'));
+const approved = (fleetName, n) => {
+  const r = reviews[`${fleetName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}/${n}`];
+  if (r && /^agrees:/.test(r.secondLook || '') && r.ownerOk) return true;
+  console.warn(`misprint held back: ${fleetName} #${n} needs an agreeing second look and the owner's OK in tools/misprint-reviews.json`);
+  return false;
+};
 // { checked: date, notOnChain: { collection address: [numbers] } }: Twonks Twetch lists that are not on the blockchain;
 // listingOnly: { collection address: [trait types] }: traits no on-chain record holds, shown and never ranked
 const chainStatus = JSON.parse(await readFile(new URL('./chain-status.json', import.meta.url), 'utf8'));
@@ -55,6 +65,7 @@ for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
       const t = doc.types.indexOf(type), v = t < 0 ? -1 : row[8 + t];
       return record === '(none)' ? v < 0 : v >= 0 && String(doc.traits[t][v][0]).trim() === record.trim();
     });
+    if (still?.length === list.length && !approved(raw.name, n)) continue;
     if (still?.length === list.length) doc.art[n] = list;
     else console.warn(`art flag dropped: ${raw.name} #${n}, its record no longer says what tools/art-flags.json claims; re-run tools/audit_art.py`);
   }
@@ -69,7 +80,7 @@ for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
       .filter(([, value]) => value != null && misspelled(name, value)) : [];
     const reviewed = spellingFlags[raw.c]?.[n] || [];
     const shown = list.filter(([type, value]) => reviewed.some(([rt, rv]) => rt === type && rv === value));
-    if (shown.length) doc.spelling[n] = shown;
+    if (shown.length && approved(raw.name, n)) doc.spelling[n] = shown;
     if (shown.length < list.length) console.warn(`spelling candidate, not shown until checked by eye: ${raw.name} #${n} "${name}": ${list.filter((x) => !shown.includes(x)).map(([t, v]) => `${t} "${v}"`).join(', ')}; add it to tools/spelling-flags.json if it is a misprint`);
   }
   for (const [n, list] of Object.entries(spellingFlags[raw.c] || {})) {
@@ -112,6 +123,8 @@ for (const [c, toks] of Object.entries(liveFlags)) {
     misprints.push({
       c, slug: fleet.slug, fleet: fleet.name, n: +n, name: doc.names[n] || `${fleet.name} #${n}`, image: row[3],
       twetch: row[1], kind: blank ? 'blank' : 'wrong', detail: blank ? [] : list,
+      // the side-by-side picture anyone can check (tools/evidence.py), when it has been made
+      evidence: existsSync(new URL(`../public/evidence/${fleet.slug}-${n}.png`, import.meta.url)) ? `/evidence/${fleet.slug}-${n}.png` : null,
     });
   }
   // "spelling" = the record misspells its own name in a trait (found over every collection, not only the pixel-art ones)

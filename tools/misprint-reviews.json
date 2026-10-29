@@ -1,0 +1,12 @@
+{
+ "frog-cartel/1286": {
+  "evidence": "public/evidence/frog-cartel-1286.png",
+  "secondLook": "agrees: row 3, the Stitched Lips row; high confidence; Sonnet reviewer given only the sheet, 2026-10-29",
+  "ownerOk": "2026-10-29"
+ },
+ "rare-sirloins/736": {
+  "evidence": "the record itself: title \"Snow Rabbit\", Meat \"Sow Rabbit\" (Check it on the blockchain)",
+  "secondLook": "agrees: a text fact read from the chain, no picture to judge",
+  "ownerOk": "2026-10-29 (sent it)"
+ }
+}

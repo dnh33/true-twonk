@@ -206,6 +206,7 @@ h1 .q { margin-left: -.06em; }
 .mp-t b { color: var(--ink); }
 .mp a:hover b, .mp a:focus-visible b { color: var(--bsv-light); text-decoration: underline; text-underline-offset: 3px; }
 .mp-t small, .mp-d { color: var(--muted); font-size: .88rem; }
+.mp-d a.ev { color: var(--bsv-light); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
 .err .tries, a.tries { display: inline-block; margin-left: 6px; }
 
 /* check it on the blockchain */
