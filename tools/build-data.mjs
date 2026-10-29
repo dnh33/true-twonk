@@ -188,7 +188,9 @@ if (existsSync(COMBOS)) {
   for (const f of await readdir(COMBOS)) {
     if (!f.endsWith('.json') || f === 'index.json') continue;
     const c = JSON.parse(await readFile(new URL(f, COMBOS), 'utf8'));
-    const un = c.unmapped || [];
+    // the rarest combinations page shows items on 1 to 4 Twonks only (too few to map); items the scan could not map for
+    // other reasons (on every Twonk, never drawn like "Invisible Side", always covered) are only counted
+    const un = (c.unmapped || []).filter((u) => u[2] <= 4);
     if (c.pairs.length || un.length) all.push({ slug: c.slug, name: c.name, count: c.pairs.length, one: c.pairs.filter((p) => p[4] === 1).length,
       unmapped: un.length, unmappedTwonks: new Set(un.flatMap((u) => u[3])).size, checked: c.checked });
   }

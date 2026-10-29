@@ -344,12 +344,13 @@ async function showRarest(slug) {
   const list = await fetch('/data/combos/index.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
   if (!list) return fail('Could not load the rarest combinations. Reload to try again.');
   const withRarest = list.filter((c) => c.unmapped);
+  const RAREST = 4;  // items on at most this many Twonks: too few for the scan to learn where they are drawn
   const ask = `<p class="lede">Look for parts that clash, like the antenna drawn through the eyepiece strap on <a href="/t/fox-syndicate/2996">Fox Syndicate #2996</a>. <a href="${THREAD}" target="_blank" rel="noopener">Post one in the misprint thread</a> with its number and why. Each one is checked by eye, confirmed by a second reviewer and approved before it is listed as a misprint.</p>`;
   if (!slug || !withRarest.find((c) => c.slug === slug)) {
     out.innerHTML = `
       <div class="misprints combos">
         <h2>Rarest combinations</h2>
-        <p>Items whose shape the scan cannot learn, mostly because so few Twonks hold them, so their pairs are not in the <a href="#combos">rare combinations</a>. Every Twonk holding one is shown whole instead.</p>
+        <p>Items on only one to four Twonks: too few for the scan to learn where they are drawn, so their pairs are not in the <a href="#combos">rare combinations</a>. Every Twonk holding one is shown whole instead.</p>
         ${ask}
         <ul class="combo-index">${withRarest.map((c) => `<li><a href="#rarest/${esc(c.slug)}"><b>${esc(c.name)}</b><span>${fmt(c.unmapped)} item${c.unmapped === 1 ? '' : 's'}</span><small>on ${fmt(c.unmappedTwonks)} Twonk${c.unmappedTwonks === 1 ? '' : 's'}</small></a></li>`).join('')}</ul>
       </div>`;
@@ -360,6 +361,8 @@ async function showRarest(slug) {
   const fleet = index.fleets.find((f) => f.slug === slug);
   const doc = await loadFleet(fleet.c);
   const img = new Map(doc.tok.map((r) => [r[0], r[3]]));
+  const rarest = data.unmapped.filter((u) => u[2] <= RAREST);
+  const other = data.unmapped.length - rarest.length;
   const group = ([type, value, held, who]) => `
     <li class="rare-item">
       <h4><span>${esc(type)}</span> ${esc(value)} <small>on ${fmt(held)} Twonk${held === 1 ? '' : 's'}</small></h4>
@@ -368,10 +371,10 @@ async function showRarest(slug) {
   out.innerHTML = `
     <div class="misprints combos">
       <h2>Rarest combinations in ${esc(data.name)}</h2>
-      <p>${fmt(data.unmapped.length)} items whose shape the scan cannot learn, mostly because so few of its ${fmt(doc.n)} Twonks hold them, so their pairs are not in the <a href="#combos/${esc(slug)}">rare combinations</a>. Every Twonk holding one is shown whole, rarest item first.</p>
+      <p>${fmt(rarest.length)} items on only one to four of its ${fmt(doc.n)} Twonks: too few for the scan to learn where they are drawn, so their pairs are not in the <a href="#combos/${esc(slug)}">rare combinations</a>. Every Twonk holding one is shown whole, rarest item first.</p>
       ${ask}
-      <ul class="rare-items">${data.unmapped.map(group).join('')}</ul>
-      <p class="fine"><a href="#rarest">All collections</a> · checked ${day(data.checked)}</p>
+      <ul class="rare-items">${rarest.map(group).join('')}</ul>
+      <p class="fine">${other ? `${fmt(other)} more item${other === 1 ? ' is' : 's are'} on enough Twonks but could not be mapped either: on every Twonk, never drawn (like an invisible side) or always covered by another item. ` : ''}<a href="#rarest">All collections</a> · checked ${day(data.checked)}</p>
     </div>`;
   document.title = `Rarest combinations in ${data.name} · True Twonk`;
   show();
