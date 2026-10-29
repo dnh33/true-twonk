@@ -32,6 +32,29 @@ from audit_art import grid, DATA, T0  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 MIN_SUPPORT = 4   # others holding the value, at least
 SHARE = 0.9       # ...and this share of them agree on the colour
+# Painted art (JPEG, soft edges) is read as a coarse grid: each block's average colour, binned LEVELS steps per channel.
+# A colour one bin away in every channel counts as the same, so JPEG noise at a bin edge is not a disagreement.
+SOFT = {'on': False, 'levels': 6}
+
+
+def soft_grid(path, n, levels):
+    a = np.asarray(Image.open(path).convert('RGB').resize((n, n), Image.BOX)).astype(np.int32) * levels // 256
+    return (a[..., 0] * levels + a[..., 1]) * levels + a[..., 2]
+
+
+def differ(a, b):
+    """Colours that disagree: exactly for pixel art; for painted art, more than one bin apart in some channel."""
+    if not SOFT['on']:
+        return a != b
+    L = SOFT['levels']
+    return (np.abs(a // (L * L) - b // (L * L)) > 1) | (np.abs(a // L % L - b // L % L) > 1) | (np.abs(a % L - b % L) > 1)
+
+
+def to_rgb(g):
+    if not SOFT['on']:
+        return np.stack([(g >> 16) & 255, (g >> 8) & 255, g & 255], -1)
+    L = SOFT['levels']
+    return np.stack([g // (L * L), g // L % L, g % L], -1) * 256 // L + 128 // L
 
 
 def votes(G, V, j, cols, Q):
@@ -83,7 +106,7 @@ def layer_order(G, V):
     return wins, beats
 
 
-def peel(G, V, K, order, Q, first=None):
+def peel(G, V, K, order, Q, first=None, paint_out=None):
     """Re-render every query record, peeling layers top-down per cell: (colour, judged) per cell.
     A value paints a cell when the Twonks holding it, and not already covered there by a higher layer, agree on one
     colour (opaque), or agree once a lower trait is known (see-through: a visor tinted by the frog under it).
@@ -96,7 +119,7 @@ def peel(G, V, K, order, Q, first=None):
     QV, own, _ = Q
     N, J = G.shape
     q = len(QV)
-    pred = np.zeros((q, J), np.int64)
+    pred = np.zeros((q, J), G.dtype)
     judged = np.zeros((q, J), bool)
     rows = np.arange(N)
     for j in range(J):
@@ -108,7 +131,7 @@ def peel(G, V, K, order, Q, first=None):
         oc = c[own]
         if first is not None:
             seen = first[1][:, j]                          # the first pass judged this Twonk here
-            off = seen & (first[0][:, j] != G[:, j])       # ...and its art departs from it
+            off = seen & differ(first[0][:, j], G[:, j])     # ...and its art departs from it
         covered = np.zeros(N, bool)  # a higher layer already paints this Twonk here
         done = np.zeros(q, bool)
         for li, t in enumerate(order):
@@ -146,6 +169,8 @@ def peel(G, V, K, order, Q, first=None):
                 blend_u[take], best[take] = u, share[take]
             blend_u[K[t]] = -1
             paints = opaque | (blend_u >= 0)
+            if paint_out is not None:
+                paint_out[t][:, j] = paints  # the cells each value draws (its footprint)
             # see-through is a claim too: the holders must show what lies under them. A value that neither paints nor
             # lets the layers below show (a tinted glass with too few examples per frog colour) leaves the cell unjudged
             clear = np.bincount(vt[S], weights=shows[S], minlength=Kt) >= SHARE * np.maximum(tot, 1)
@@ -197,6 +222,47 @@ def peel(G, V, K, order, Q, first=None):
     return pred, judged
 
 
+PAIR_MIN = 2  # others sharing a Twonk's exact pair of values, at least, for the pair to clear a disagreement
+
+
+def pair_clear(G, V, Q, wrong):
+    """Clears a disagreeing cell when the other Twonks holding the same PAIR of values (a jacket and a tail colour, an
+    axe and a mouth) all show the art's colour there: the drawing order changes per item, not per trait type, in
+    painted collections. It only clears: it never makes a cell disagree, so it cannot invent a flag. It also means an
+    error repeated on every holder of a pair looks normal. Q = (records, own Twonk, art judged)."""
+    QV, own, art = Q
+    T = V.shape[1]
+    pairs = [(a, b) for a in range(T) for b in range(a + 1, T)]
+    out = wrong.copy()
+    for j in np.flatnonzero(wrong.any(0)):
+        qs = np.flatnonzero(out[:, j])
+        if not len(qs):
+            continue
+        pal, c = np.unique(G[:, j], return_inverse=True)
+        C = len(pal)
+        oc = c[own[qs]]
+        for a, b in pairs:
+            key = V[:, a] * 1000 + V[:, b]
+            keys, k = np.unique(key, return_inverse=True)
+            counts = np.bincount(k * C + c, minlength=len(keys) * C).reshape(len(keys), C)
+            kq = QV[qs, a] * 1000 + QV[qs, b]
+            pos = np.clip(np.searchsorted(keys, kq), 0, len(keys) - 1)
+            found = keys[pos] == kq
+            cnt = counts[pos].copy()
+            me = found & (key[own[qs]] == kq)
+            cnt[np.arange(len(qs)), oc] -= me
+            tot = cnt.sum(1)
+            top = cnt.argmax(1)
+            agree = cnt[np.arange(len(qs)), top]
+            ok = found & (tot >= PAIR_MIN) & (agree >= np.maximum(PAIR_MIN, SHARE * tot)) & ~differ(pal[top], art[qs, j])
+            out[qs[ok], j] = False
+            qs = qs[~ok]
+            oc = oc[~ok]
+            if not len(qs):
+                break
+    return out
+
+
 def worst_patch(wrong, shape):
     lab, n = ndimage.label(wrong.reshape(shape))
     if not n:
@@ -206,7 +272,7 @@ def worst_patch(wrong, shape):
 
 def sheet(path, art, pred, judged, wrong, shape, cell=12):
     """actual | what the record predicts (grey = not judged) | the cells that disagree, in red."""
-    rgb = lambda g: np.stack([(g >> 16) & 255, (g >> 8) & 255, g & 255], -1).reshape(*shape, 3).astype(np.uint8)
+    rgb = lambda g: to_rgb(g).reshape(*shape, 3).astype(np.uint8)
     a = rgb(art)
     e = rgb(np.where(judged, pred, 0))
     e[~judged.reshape(shape)] = (128, 128, 128)
@@ -216,12 +282,8 @@ def sheet(path, art, pred, judged, wrong, shape, cell=12):
     Image.fromarray(np.concatenate([a, gap, e, gap, diff], 1).repeat(cell, 0).repeat(cell, 1)).save(path)
 
 
-def main():
-    args = sys.argv[1:]
-    opt = lambda k, dflt: type(dflt)(args[args.index(k) + 1]) if k in args else dflt
-    slug = args[0]
-    plant, seed, ntop = opt('--plant', 300), opt('--seed', 1), opt('--top', 40)
-    chain, sheets = Path(opt('--chain', 'D:/_twonk-chain/b')), Path(opt('--sheets', 'D:/_twonk-diff'))
+def load(slug, chain, opt):
+    """One collection's art and records: (d, nums, G cells per Twonk, V value per trait, K values per trait, grid shape)."""
     index = json.loads((DATA / 'index.json').read_text(encoding='utf-8'))
     fleet = next(f for f in index['fleets'] if f['slug'] == slug)
     d = json.loads((DATA / f"{fleet['c']}.json").read_text(encoding='utf-8'))
@@ -236,12 +298,20 @@ def main():
             grids[r[0]] = g
             sizes[g.shape] = sizes.get(g.shape, 0) + 1
     if not sizes or sum(sizes.values()) < len(d['tok']) * 0.95:
-        print(f"{d['name']}: not pixel art ({sum(sizes.values())} of {len(d['tok'])} images rebuild from square cells); needs the tolerant version")
-        return
+        # painted art: the coarse, tolerant grid
+        n_soft = opt('--soft', 100)
+        SOFT['on'], SOFT['levels'] = True, opt('--levels', 6)
+        rows_ = [r for r in d['tok'] if r[3] and (chain / f'{r[3]}.bin').exists()]
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(8) as ex:
+            gs = list(ex.map(lambda r: soft_grid(chain / f'{r[3]}.bin', n_soft, SOFT['levels']), rows_))
+        grids = {r[0]: g for r, g in zip(rows_, gs)}
+        sizes = {(n_soft, n_soft): len(grids)}
+        print(f"{d['name']}: painted art, read as a {n_soft}x{n_soft} grid of block colours, {SOFT['levels']} steps per channel")
     shape = max(sizes, key=sizes.get)
     row = {r[0]: r for r in d['tok']}
     nums = sorted(n for n, g in grids.items() if g.shape == shape)
-    G = np.stack([grids[n].ravel() for n in nums]).astype(np.int64)
+    G = np.stack([grids[n].ravel() for n in nums]).astype(np.int32 if SOFT['on'] else np.int64)
     T = len(d['types'])
     K = [len(d['traits'][t]) for t in range(T)]
     name = lambda t, v: '(none)' if v >= K[t] else str(d['traits'][t][v][0])
@@ -251,6 +321,19 @@ def main():
     V = np.array([[row[n][T0 + t] if row[n][T0 + t] >= 0 and row[n][T0 + t] not in absent[t] else K[t] for t in range(T)] for n in nums], np.int64)
     print('  read as absent: ' + ', '.join(f"{d['types'][t]} \"{d['traits'][t][v][0]}\"" for t in range(T) for v in sorted(absent[t])))
     print(f"{d['name']}: {len(nums)} Twonks, grid {shape}, loaded in {time.time() - t0:.0f}s")
+    return d, nums, G, V, K, shape
+
+
+def main():
+    args = sys.argv[1:]
+    opt = lambda k, dflt: type(dflt)(args[args.index(k) + 1]) if k in args else dflt
+    slug = args[0]
+    plant, seed, ntop = opt('--plant', 300), opt('--seed', 1), opt('--top', 40)
+    chain, sheets = Path(opt('--chain', 'D:/_twonk-chain/b')), Path(opt('--sheets', 'D:/_twonk-diff'))
+    t0 = time.time()
+    d, nums, G, V, K, shape = load(slug, chain, opt)
+    T = len(d['types'])
+    name = lambda t, v: '(none)' if v >= K[t] else str(d['traits'][t][v][0])
 
     wins, beats = layer_order(G, V)
     order = sorted(range(T), key=lambda t: -beats[t])
@@ -285,7 +368,7 @@ def main():
             art[y:y + h, x:x + w] = G[i].reshape(shape)[y + 1:y + h + 1, x + 1:x + w + 1]
         else:
             art[y:y + h, x:x + w] = G[int(rng.integers(len(nums)))].reshape(shape)[y:y + h, x:x + w]
-        if int((art.ravel() != G[i]).sum()) >= 1:
+        if int(differ(art.ravel(), G[i]).sum()) >= 1:  # a real change, beyond the tolerance
             fakes_g.append((i, art.ravel(), kind, max(h, w) if hi < 3 else 3))
     wi = [i for i, _, _ in fakes_w]
     gi = [i for i, _, _, _ in fakes_g]
@@ -295,12 +378,16 @@ def main():
     first = peel(G, V, K, order, (V, np.arange(len(nums)), G))
     pred, judged = peel(G, V, K, order, (QV, own, judge), first)
     print(f"  re-rendered {len(QV)} records [{time.time() - t0:.0f}s]")
-    wrong = judged & (pred != judge)
+    wrong = judged & differ(pred, judge)
+    if SOFT['on'] or '--pairs' in args:
+        before = int(wrong.sum())
+        wrong = pair_clear(G, V, (QV, own, judge), wrong)
+        print(f"  pair check cleared {before - int(wrong.sum())} of {before} disagreeing cells [{time.time() - t0:.0f}s]")
     patch = np.array([worst_patch(w, shape) for w in wrong])
     N, P = len(nums), plant
     real, pw, pg = patch[:N], patch[N:N + P], patch[N + P:]
     # a swap whose two values render the same art everywhere cannot show in any picture: counted apart
-    same_art = np.array([not (judged[N + k] & judged[i] & (pred[N + k] != pred[i])).any() and pw[k] == 0 for k, i in enumerate(wi)])
+    same_art = np.array([not (judged[N + k] & judged[i] & differ(pred[N + k], pred[i])).any() and pw[k] == 0 for k, i in enumerate(wi)])
 
     # custom one-of-ones (a "Signature Series" value): drawn by hand, not from the parts, so a part-by-part re-render
     # says nothing about them. Listed apart, never flagged.
@@ -340,8 +427,8 @@ def main():
         ap, aj = peel(G, V, K, order, (np.array(alts), np.array(oi), G[oi]), first)
         for k, (i, t, v) in enumerate(owner):
             before_bad = wrong[i]
-            fixed = int((before_bad & aj[k] & (ap[k] == G[i])).sum())
-            broke = int((~before_bad & judged[i] & aj[k] & (ap[k] != G[i])).sum())
+            fixed = int((before_bad & aj[k] & ~differ(ap[k], G[i])).sum())
+            broke = int((~before_bad & judged[i] & aj[k] & differ(ap[k], G[i])).sum())
             gain = fixed - broke
             if gain > expl.get(i, (0,))[0]:
                 expl[i] = (gain, t, v)
@@ -350,7 +437,7 @@ def main():
     print("  biggest disagreeing patches:")
     for i in top:
         n = nums[i]
-        sheet(sheets / slug / f'{n}.png', G[i], pred[i], judged[i], wrong[i], shape)
+        sheet(sheets / slug / f'{n}.png', G[i], pred[i], judged[i], wrong[i], shape, cell=5 if SOFT['on'] else 12)
         e = expl.get(i)
         why = {'type': d['types'][e[1]], 'record': name(e[1], V[i, e[1]]), 'art fits': name(e[1], e[2]), 'cells fixed': e[0]} if e else None
         flags.append({'n': n, 'patch': int(real[i]), 'cells': int(wrong[i].sum()), 'explain': why})

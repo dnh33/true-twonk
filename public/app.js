@@ -227,7 +227,7 @@ function showMisprints() {
     <div class="misprints">
       <h2>Misprints</h2>
       <p>Twetch collectors use “misprint” for a Twonk with a flaw in its record or its art. Neither Twetch nor the creators have published a definition. This page lists two kinds. They are shown here, not ranked: True Twonk ranks every Twonk by its record.</p>
-      <nav class="mp-jump" aria-label="Sections">${jumps.map(([n, label, id]) => `<button type="button" data-to="${id}">${label}<span>${n}</span></button>`).join('')}</nav>
+      <nav class="mp-jump" aria-label="Sections">${jumps.map(([n, label, id]) => `<button type="button" data-to="${id}">${label}<span>${n}</span></button>`).join('')}<a class="to-combos" href="#combos">Rare combinations</a></nav>
       ${record.length ? `<section id="mp-record">
         <h3>Record misprints <span>${record.length}</span></h3>
         <p class="lede">The on-chain record does not match the art, or spells a trait differently from the Twonk's own name.</p>
@@ -251,6 +251,77 @@ function showMisprints() {
     </div>`;
   out.querySelectorAll('.mp-jump button').forEach((b) => b.addEventListener('click', () => document.getElementById(b.dataset.to)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })));
   document.title = 'Misprints · True Twonk';
+  show();
+}
+// Rare combinations: pairs of items drawn over each other on only one, two or three Twonks (tools/combo_scan.py).
+// Candidates for people to look at, not misprints: an odd one goes to the misprint thread and through the review.
+const THREAD = 'https://twetch.com/t/3ff295e02a98853fa729f79be524b9e50e94967ea508110b58295d4f2ea70354';
+const PAGE = 48;
+async function showCombos(slug) {
+  const out = $('#result');
+  const list = await fetch('/data/combos/index.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (!list) return fail('Could not load the rare combinations. Reload to try again.');
+  const ask = `<p class="lede">Most look normal. Spot one that looks wrong, like the antenna drawn through the eyepiece strap on <a href="/t/fox-syndicate/2996">Fox Syndicate #2996</a>? <a href="${THREAD}" target="_blank" rel="noopener">Post it in the misprint thread</a> with its number and why. Each one is checked by eye, confirmed by a second reviewer and approved before it is listed as a misprint.</p>`;
+  if (!slug || !list.find((c) => c.slug === slug)) {
+    out.innerHTML = `
+      <div class="misprints combos">
+        <h2>Rare combinations</h2>
+        <p>Pairs of items drawn over each other on only one, two or three Twonks, found by comparing where each item is drawn.</p>
+        ${ask}
+        <ul class="combo-index">${list.map((c) => `<li><a href="#combos/${esc(c.slug)}"><b>${esc(c.name)}</b><span>${fmt(c.count)} pairs</span><small>${fmt(c.one)} on a single Twonk</small></a></li>`).join('')}</ul>
+        <p class="fine">Not every collection is here: a collection needs items drawn in layers to have combinations. Checked ${esc(list[0]?.checked ? day(list[0].checked) : '')}.</p>
+      </div>`;
+    document.title = 'Rare combinations · True Twonk';
+    return show();
+  }
+  const data = await fetch(`/data/combos/${slug}.json`).then((r) => r.json());
+  const fleet = index.fleets.find((f) => f.slug === slug);
+  const doc = await loadFleet(fleet.c);
+  const img = new Map(doc.tok.map((r) => [r[0], r[3]]));
+  // rarest first, then the smallest meeting spot first (the highest zoom): a big overlap is usually a hand item held in
+  // front of the body, while a subtle clash sits in a small spot
+  data.pairs.sort((p, q) => p[4] - q[4] || q[8] - p[8]);
+  const pairsOf = [...new Set(data.pairs.map((p) => `${p[0]} + ${p[2]}`))].sort();
+  let held = 0, kind = '', shown = PAGE;
+  const card = ([ta, va, tb, vb, n, who, x, y, z]) => {
+    const first = img.get(who[0]);
+    return `<li class="combo">
+      ${first ? zoomTile(first, [x, y], Math.min(z, 2.6), data.pixel, `#${who[0]}`).replace('<figure>', `<figure><a href="/t/${esc(slug)}/${who[0]}" aria-label="Open ${esc(data.name)} #${who[0]}">`).replace('</div><figcaption>', '</div></a><figcaption>') : ''}
+      <p><span>${esc(ta)}</span> ${esc(va)}</p><p><span>${esc(tb)}</span> ${esc(vb)}</p>
+      <p class="who">${n === 1 ? 'Only on' : `On ${n}:`} ${who.map((w) => `<a href="/t/${esc(slug)}/${w}">#${w}</a>`).join(' ')}</p>
+    </li>`;
+  };
+  const paint = () => {
+    const sel = data.pairs.filter((p) => (!held || p[4] === held) && (!kind || `${p[0]} + ${p[2]}` === kind));
+    out.querySelector('.combo-grid').innerHTML = sel.slice(0, shown).map(card).join('');
+    out.querySelector('.combo-count').textContent = `${fmt(sel.length)} pair${sel.length === 1 ? '' : 's'}`;
+    const more = out.querySelector('.combo-more');
+    more.hidden = sel.length <= shown;
+    more.textContent = `Show ${fmt(Math.min(PAGE, sel.length - shown))} more`;
+  };
+  out.innerHTML = `
+    <div class="misprints combos">
+      <h2>Rare combinations in ${esc(data.name)}</h2>
+      <p>Pairs of items drawn over each other on only one, two or three of its ${fmt(doc.n)} Twonks, rarest first. Each picture is zoomed in on where the two meet.</p>
+      ${ask}
+      <div class="combo-tools">
+        <nav class="mp-jump" aria-label="How many hold it">${[[0, 'All'], [1, 'On 1'], [2, 'On 2'], [3, 'On 3']].map(([v, l]) => `<button type="button" data-held="${v}" aria-pressed="${v === 0}">${l}</button>`).join('')}</nav>
+        <label class="combo-kind"><span class="sr">Which items</span><select>${['', ...pairsOf].map((k) => `<option value="${esc(k)}">${k ? esc(k) : 'All items'}</option>`).join('')}</select></label>
+        <span class="combo-count" aria-live="polite"></span>
+      </div>
+      <ul class="combo-grid"></ul>
+      <button type="button" class="combo-more" hidden></button>
+      <p class="fine"><a href="#combos">All collections</a> · checked ${day(data.checked)}</p>
+    </div>`;
+  out.querySelectorAll('[data-held]').forEach((b) => b.addEventListener('click', () => {
+    held = +b.dataset.held; shown = PAGE;
+    out.querySelectorAll('[data-held]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    paint();
+  }));
+  out.querySelector('.combo-kind select').addEventListener('change', (e) => { kind = e.target.value; shown = PAGE; paint(); });
+  out.querySelector('.combo-more').addEventListener('click', () => { shown += PAGE; paint(); });
+  paint();
+  document.title = `Rare combinations in ${data.name} · True Twonk`;
   show();
 }
 // the deliberate glitch one-of-ones (Frog Cartel #1240, Naka Motor Club #2222, Rare Sirloins #1213): "Missing" traits by design
@@ -513,7 +584,11 @@ $('#ask').addEventListener('submit', (e) => { e.preventDefault(); check(); });
 
 loadIndex().then(() => {
   if (location.hash === '#misprints') return showMisprints();
+  if (location.hash.startsWith('#combos')) return showCombos(location.hash.split('/')[1]);
   const q = linked();
   if (q) { $('#q').value = q; check(); }
 }).catch(() => fail('Could not load the collections. Reload to try again.'));
-addEventListener('hashchange', () => { if (location.hash === '#misprints') showMisprints(); });
+addEventListener('hashchange', () => {
+  if (location.hash === '#misprints') showMisprints();
+  else if (location.hash.startsWith('#combos')) showCombos(location.hash.split('/')[1]);
+});

@@ -308,3 +308,35 @@ h1 .q { margin-left: -.06em; }
   .r { flex: 1; min-width: 0; }
   .trait { padding: 12px 26px; }
 }
+
+/* ---------- rare combinations ---------- */
+.mp-jump .to-combos { display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 999px; border: 1px dashed var(--line); color: var(--bsv-light); font: 600 .9rem var(--sans); text-decoration: none; }
+.mp-jump .to-combos:hover { border-style: solid; border-color: var(--bsv); }
+.combos .lede { margin-top: 12px; }
+.combos h2 + p, .combos .lede { font-size: 1rem; }
+.combo-index { list-style: none; margin: 18px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.combo-index a { display: grid; gap: 2px; padding: 14px 16px; border-radius: 14px; background: var(--raised); border: 1px solid var(--line); text-decoration: none; transition: border-color .2s var(--ease); }
+.combo-index a:hover { border-color: var(--bsv); }
+.combo-index b { color: var(--ink); font: 800 1.05rem var(--display); }
+.combo-index span { color: var(--bsv-light); font-weight: 600; font-variant-numeric: tabular-nums; }
+.combo-index small { color: var(--dim); font-variant-numeric: tabular-nums; }
+.combo-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 18px 0 14px; }
+.combo-tools .mp-jump { margin: 0; }
+.mp-jump button[aria-pressed="true"] { border-color: var(--bsv); background: color-mix(in srgb, var(--bsv) 16%, var(--panel)); }
+.combo-kind select { max-width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: 500 .9rem var(--sans); }
+.combo-count { color: var(--dim); font: 12px var(--mono); font-variant-numeric: tabular-nums; }
+.combo-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)); gap: 12px; }
+.combo { padding: 10px; border-radius: 14px; background: var(--raised); border: 1px solid var(--line); }
+.combo figure { margin: 0 0 8px; }
+.combo figure a { display: block; border-radius: 10px; }
+.combo figcaption { display: none; }
+.combo p { margin: 0; font-size: .86rem; line-height: 1.35; color: var(--ink); overflow-wrap: anywhere; }
+.combo p span { display: block; font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin-top: 6px; }
+.combo .who { margin-top: 8px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.combo .who a { color: var(--bsv-light); margin-right: 4px; }
+.combo-more { display: block; margin: 16px auto 0; padding: 10px 20px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: 600 .95rem var(--sans); cursor: pointer; }
+.combo-more:hover { border-color: var(--bsv); }
+@media (max-width: 640px) {
+  .combo-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .combo { padding: 8px; }
+}

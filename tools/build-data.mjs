@@ -179,3 +179,17 @@ await writeFile(new URL('misprints.json', OUT), JSON.stringify({
   checked: ['Frog Cartel', 'Graveyard', 'Lizer Corp', 'Planetary Pixels', 'Rare Sirloins'], of: index.length, misprints,
   chainChecked: chainStatus.checked, offChain,
 }));
+
+// The rare combinations pages (tools/combo_scan.py writes public/data/combos/<slug>.json): an index of collections
+// with how many rare pairs each holds, the most first
+const COMBOS = new URL('combos/', OUT);
+if (existsSync(COMBOS)) {
+  const all = [];
+  for (const f of await readdir(COMBOS)) {
+    if (!f.endsWith('.json') || f === 'index.json') continue;
+    const c = JSON.parse(await readFile(new URL(f, COMBOS), 'utf8'));
+    if (c.pairs.length) all.push({ slug: c.slug, name: c.name, count: c.pairs.length, one: c.pairs.filter((p) => p[4] === 1).length, checked: c.checked });
+  }
+  all.sort((a, b) => a.name.localeCompare(b.name));
+  await writeFile(new URL('index.json', COMBOS), JSON.stringify(all));
+}
