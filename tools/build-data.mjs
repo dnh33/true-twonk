@@ -63,3 +63,23 @@ for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
   console.log(`${raw.name.padEnd(20)} ${String(doc.n).padStart(6)} alive  ${doc.method}  top ${doc.top.join(', ')}  ${(body.length / 1024).toFixed(0)} KB`);
 }
 await writeFile(new URL('index.json', OUT), JSON.stringify({ v: 1, at: Math.max(...raws.map((r) => r.at)), fleets: index }));
+
+// The misprints gallery: every reviewed record/art mismatch. "wrong" = the record names a trait the art does not show;
+// "blank" = the record lists no traits at all while the art is a full Twonk (Twetch still prints a rank for it).
+const misprints = [];
+for (const [c, toks] of Object.entries(artFlags)) {
+  const fleet = index.find((f) => f.c === c);
+  const doc = JSON.parse(await readFile(new URL(`${c}.json`, OUT), 'utf8'));
+  for (const [n, list] of Object.entries(toks)) {
+    const row = doc.tok.find((r) => r[0] === +n);
+    const blank = list.every(([, record]) => record === '(none)');
+    misprints.push({
+      c, slug: fleet.slug, fleet: fleet.name, n: +n, name: doc.names[n] || `${fleet.name} #${n}`, image: row[3],
+      twetch: row[1], kind: blank ? 'blank' : 'wrong', detail: blank ? [] : list,
+    });
+  }
+}
+misprints.sort((a, b) => (a.kind === b.kind ? a.fleet.localeCompare(b.fleet) || a.n - b.n : a.kind === 'wrong' ? -1 : 1));
+await writeFile(new URL('misprints.json', OUT), JSON.stringify({
+  checked: ['Frog Cartel', 'Graveyard', 'Lizer Corp', 'Planetary Pixels', 'Rare Sirloins'], of: index.length, misprints,
+}));

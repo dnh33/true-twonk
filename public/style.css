@@ -64,7 +64,7 @@ h1 {
 }
 h1 em { font-style: normal; color: var(--bsv); }
 h1 .q { margin-left: -.06em; }
-.lede { margin: 22px 0 32px; max-width: 62ch; color: var(--muted); font-size: clamp(1rem, 1.6vw, 1.12rem); }
+.lede { margin: 22px 0 32px; max-width: 62ch; color: var(--muted); font-size: clamp(1rem, 1.6vw, 1.12rem); text-wrap: pretty; }
 
 /* the lozenge: the quiz show's answer bar, pointed at both ends */
 /* two layers: the outer shape is the edge colour, the inner one (1.5px in, same angles) is the fill */
@@ -115,7 +115,7 @@ h1 .q { margin-left: -.06em; }
   padding: clamp(20px, 3vw, 36px); border: 1px solid var(--line); border-radius: 22px; background: var(--panel);
   box-shadow: 0 30px 60px -30px rgba(0, 0, 0, .8);
 }
-.stage.burned { grid-template-columns: minmax(200px, 300px) 1fr; }
+.stage.burned, .stage.blank { grid-template-columns: minmax(200px, 300px) 1fr; }
 .spot {
   position: relative; aspect-ratio: 1; border-radius: 18px; overflow: hidden; background: #0d0c0a;
   display: grid; place-items: center;
@@ -139,7 +139,8 @@ h1 .q { margin-left: -.06em; }
 .r.twetch b { color: var(--muted); }
 .r.true { border-color: color-mix(in srgb, var(--bsv) 55%, var(--line)); background: linear-gradient(180deg, color-mix(in srgb, var(--bsv) 13%, var(--raised)), var(--raised)); }
 .r.true b { color: var(--bsv); }
-.call { margin: 18px 0 6px; font: 700 1.15rem/1.35 var(--display); }
+.call { margin: 18px 0 6px; font: 700 1.15rem/1.35 var(--display); text-wrap: pretty; }
+.stage.blank .verdict { max-width: 640px; }
 .call.up { color: var(--green); }
 .call.dn { color: var(--red); }
 .big { margin: 0; font: 800 3rem/1 var(--display); color: var(--muted); }
@@ -189,8 +190,23 @@ h1 .q { margin-left: -.06em; }
 .notes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .flag { font-size: .8rem; color: var(--muted); padding: 2px 8px; border-radius: 6px; background: var(--line-soft); }
 .flag.hot { color: var(--bg); background: var(--bsv); font-weight: 600; }
-.misprint { margin: -8px 0 16px; color: var(--muted); font-size: .9rem; }
-.misprint .flag { margin-right: 6px; }
+/* misprints: a tier beside the rank, and their gallery */
+.ranks.three .misp { grid-column: 1 / -1; }
+.r.misp { border-color: color-mix(in srgb, var(--bsv-light) 40%, var(--line)); }
+.r.misp b { color: var(--bsv-light); font-size: min(2.6rem, 7.5cqi); }
+.misprints { max-width: 860px; }
+.misprints h2 { margin: 0 0 10px; font: 800 clamp(1.6rem, 3vw, 2.2rem)/1.1 var(--display); }
+.misprints h2 + p { margin: 0; max-width: 62ch; color: var(--muted); text-wrap: pretty; }
+.misprints h3 { margin: 26px 0 10px; font: 600 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+.mps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.mp { display: grid; grid-template-columns: 64px 1fr; grid-template-rows: auto auto; column-gap: 14px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); }
+.mp > a:first-child { grid-row: span 2; }
+.mp img { width: 64px; height: 64px; border-radius: 8px; image-rendering: pixelated; display: block; }
+.mp a { text-decoration: none; }
+.mp-t b { color: var(--ink); }
+.mp a:hover b, .mp a:focus-visible b { color: var(--bsv-light); text-decoration: underline; text-underline-offset: 3px; }
+.mp-t small, .mp-d { color: var(--muted); font-size: .88rem; }
+.err .tries, a.tries { display: inline-block; margin-left: 6px; }
 
 .how { margin-top: 22px; color: var(--muted); max-width: 72ch; font-size: .93rem; }
 .how summary { cursor: pointer; color: var(--ink); font-weight: 600; }
@@ -222,7 +238,7 @@ h1 .q { margin-left: -.06em; }
 @media (max-width: 640px) {
   .lozenge-form { flex-direction: column; }
   .go { min-height: 56px; }
-  .stage, .stage.burned { grid-template-columns: 1fr; padding: 16px; }
+  .stage, .stage.burned, .stage.blank { grid-template-columns: 1fr; padding: 16px; }
   .spot { max-width: 260px; width: 100%; justify-self: center; }
   .r { flex: 1; min-width: 0; }
   .trait { padding: 12px 26px; }

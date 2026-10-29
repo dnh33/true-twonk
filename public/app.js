@@ -11,6 +11,7 @@ const norm = (s) => String(s).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let index = null;
+let misprints = null;
 const fleets = new Map();
 
 // ---------- sound: synthesised, no audio files ----------
@@ -48,6 +49,8 @@ async function loadIndex() {
   const r = await fetch('/data/index.json');
   if (!r.ok) throw new Error('index');
   index = await r.json();
+  // small, and needed to mark a misprint on the first answer; a failed read only hides the misprint tier
+  misprints = await fetch('/data/misprints.json').then((m) => (m.ok ? m.json() : null)).catch(() => null);
   $('#fleets').innerHTML = index.fleets.map((f) => `<option value="${esc(f.name)} "></option>`).join('');
   const d = new Date(index.at);
   $('#dataline').textContent = `Counts from Twetch's API, read ${d.getDate()} ${d.toLocaleString('en-US', { month: 'short' })} ${d.getFullYear()}.`;
@@ -83,12 +86,41 @@ function parse(text) {
 const tierName = (i) => (i >= 0 ? TIERS[i] : null);
 // counts and doses keep changing (burns, vaccinations), so a rank is only true as of the day the data was read
 const asOf = () => { const d = new Date(index.at); return `as of ${d.getDate()} ${d.toLocaleString('en-US', { month: 'short' })}`; };
-// a Twonk whose on-chain record does not match its art (checked by eye, tools/art-flags.json): collectors prize
-// misprints like misprinted banknotes, so it is marked as one. Shown, never ranked.
-const misprint = (f, n) => {
-  if (!f.art?.[n]?.length) return '';
-  return `<p class="misprint"><span class="flag hot">Misprint</span> Its on-chain record does not match its art (see its traits below).</p>`;
-};
+// a Twonk whose on-chain record does not match its art (checked by eye, tools/art-flags.json). Misprints are a tier of
+// their own, shown beside the rank and never inside it: the rank follows the record.
+const KIND = { wrong: 'wrong-trait', blank: 'blank-record' };
+const misprintOf = (f, n) => misprints?.misprints.find((m) => m.c === f.c && m.n === n) || null;
+const kindCount = (m) => misprints.misprints.filter((x) => x.kind === m.kind).length;
+const misprintBox = (m) => `
+  <div class="r misp"><span>Misprint</span><b>1 of ${kindCount(m)}</b><small>${KIND[m.kind]} misprint (1 of ${misprints.misprints.length} known)</small></div>`;
+
+function showMisprints() {
+  if (!misprints) return;
+  const list = misprints.misprints;
+  const item = (m) => `
+    <li class="mp">
+      <a href="/t/${esc(m.slug)}/${m.n}">${m.image ? `<img src="${MEDIA}${m.image}" alt="${esc(m.name)}" loading="lazy" decoding="async">` : ''}</a>
+      <span class="mp-t"><a href="/t/${esc(m.slug)}/${m.n}"><b>${esc(m.name)}</b></a>${m.name.includes('#') ? '' : ` <small>${esc(m.fleet)} #${m.n}</small>`}</span>
+      <span class="mp-d">${m.kind === 'wrong'
+        ? m.detail.map(([type, record, art]) => `${esc(type)}: the art shows ${esc(art)}, the record says ${esc(record)}.`).join(' ')
+        : `The record lists no traits. The art shows a full Twonk. Twetch shows #${fmt(m.twetch)}.`}</span>
+    </li>`;
+  const group = (kind, title) => {
+    const g = list.filter((m) => m.kind === kind);
+    return g.length ? `<h3>${title} (${g.length})</h3><ul class="mps">${g.map(item).join('')}</ul>` : '';
+  };
+  const out = $('#result');
+  out.innerHTML = `
+    <div class="misprints">
+      <h2>Misprints</h2>
+      <p>A misprint is a Twonk whose on-chain record does not match its art. Like misprinted banknotes, they can be collected as a tier of their own. They are shown here, not ranked: True Twonk ranks every Twonk by its record.</p>
+      ${group('wrong', 'Wrong trait')}
+      ${group('blank', 'Blank record, full art')}
+      <p class="fine">Found by comparing each Twonk's art with its record, then checked by eye. Checked: ${misprints.checked.length} of ${misprints.of} collections, the pixel-art ones (${esc(misprints.checked.join(', '))}). The other ${misprints.of - misprints.checked.length} are not pixel art, which this check cannot read, so they may hold misprints not listed here.</p>
+    </div>`;
+  document.title = 'Misprints · True Twonk';
+  show();
+}
 // the deliberate glitch one-of-ones (Frog Cartel #1240, Naka Motor Club #2222, Rare Sirloins #1213): "Missing" traits by design
 const missingPiece = (f, row) => f.types.filter((_, t) => { const v = row[T0 + t]; return v >= 0 && /^missing/i.test(f.traits[t][v][0]) && f.traits[t][v][2] === 1; }).length >= 3;
 const img = (f, row, cls = '') => row && row[3]
@@ -173,7 +205,29 @@ function render(f, number) {
     sfx.down();
     return show();
   }
-  if (!row[2]) return fail(`${name} has no traits on Twetch, so it has no rank to check.${f.art?.[number] ? ' Misprint: its art shows a full Twonk, but its on-chain record lists no traits.' : ''}`);
+  if (!row[2]) {
+    // no traits on its record: nothing to recount, but Twetch may still print a rank, and the art may be a full Twonk
+    const m = misprintOf(f, number);
+    if (!row[3]) return fail(`${name} has no traits on its on-chain record${row[1] ? `, though Twetch shows #${fmt(row[1])}` : ''}, so there is nothing to recount.`);
+    document.title = `${name} · True Twonk`;
+    out.innerHTML = `
+      <div class="stage blank">
+        <div class="spot">${img(f, row, 'hero')}</div>
+        <div class="verdict">
+          <h2>${esc(name)}</h2>
+          <div class="ranks${m ? ' three' : ''}">
+            <div class="r twetch"><span>Twetch</span><b>${row[1] ? '#' + fmt(row[1]) : '–'}</b><small>${row[1] ? 'as Twetch prints it' : 'no rank'}</small></div>
+            <div class="r"><span>True rank</span><b>None</b><small>no traits on record</small></div>
+            ${m ? misprintBox(m) : ''}
+          </div>
+          <p class="call">Its on-chain record lists no traits, so there is nothing to recount.${m ? ' Its art shows a full Twonk.' : ''}</p>
+          <p class="acts"><a class="out" href="https://twetch.com/market/${f.c}?token=${number}" target="_blank" rel="noopener">View on Twetch</a>${m ? '<a class="out" href="/#misprints">All misprints</a>' : ''}</p>
+        </div>
+      </div>`;
+    sfx.same();
+    return show();
+  }
+  const mp = misprintOf(f, number);
 
   const gained = row[4] ? row[4] - row[2] : null;
   const head = gained == null ? `<p class="call">Twetch shows no rank for ${esc(f.name)}, so this is the only one there is.</p>`
@@ -190,11 +244,12 @@ function render(f, number) {
       <div class="spot">${img(f, row, 'hero')}</div>
       <div class="verdict">
         <h2>${esc(name)}</h2>
-        ${misprint(f, number)}
-        <div class="ranks">
+        <div class="ranks${mp ? ' three' : ''}">
           <div class="r twetch"><span>Twetch</span><b>${row[4] ? '#' + fmt(row[4]) : '–'}</b><small>${row[4] ? 'of ' + fmt(f.twetchOf) : 'no rank'}</small></div>
           <div class="r true"><span>True rank</span><b class="slam">#${fmt(row[2])}</b><small>of ${fmt(f.n)}, ${asOf()}</small></div>
+          ${mp ? misprintBox(mp) : ''}
         </div>
+        ${mp ? '<p class="fine"><a href="/#misprints">See all known misprints</a></p>' : ''}
         ${head}
         ${missingPiece(f, row) ? `<p class="fine">A one-of-one "Missing" piece: every trait is unique by design.</p>` : ''}
         ${st.length ? `<ul class="steps" aria-label="What moved it">${st.join('')}</ul>` : ''}
@@ -275,10 +330,10 @@ function show() {
   out.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
 }
 /** checks: [query, label] pairs offered as one-click buttons under the message. */
-function fail(msg, checks = []) {
+function fail(msg, checks = [], more = '') {
   document.title = 'True Twonk';
   const e = $('#err');
-  e.innerHTML = esc(msg) + (checks.length ? `<span class="tries">${checks.map(([q, label]) => `<button type="button" class="try" data-q="${esc(q)}">Check ${esc(label)}</button>`).join('')}</span>` : '');
+  e.innerHTML = esc(msg) + (checks.length ? `<span class="tries">${checks.map(([q, label]) => `<button type="button" class="try" data-q="${esc(q)}">Check ${esc(label)}</button>`).join('')}</span>` : '') + more;
   e.querySelectorAll('.try').forEach((b) => b.addEventListener('click', () => { $('#q').value = b.dataset.q; check(); }));
   e.hidden = false; $('#result').hidden = true; sfx.miss();
 }
@@ -302,6 +357,8 @@ async function check() {
 $('#ask').addEventListener('submit', (e) => { e.preventDefault(); check(); });
 
 loadIndex().then(() => {
+  if (location.hash === '#misprints') return showMisprints();
   const q = linked();
   if (q) { $('#q').value = q; check(); }
 }).catch(() => fail('Could not load the collections. Reload to try again.'));
+addEventListener('hashchange', () => { if (location.hash === '#misprints') showMisprints(); });

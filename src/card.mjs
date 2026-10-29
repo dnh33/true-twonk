@@ -15,6 +15,6 @@ export function card(entry, slugName, number) {
     : place ? `${name}: Twetch says #${fmt(place)} of ${fmt(of)}. Final answer?`
     : `${name}: Twetch shows no rank. Here is the real one.`;
   const description = burned ? 'Burned Twonks drop out of the count. See what became of this one.'
-    : 'Twetch skips traits and still counts burned Twonks. Tap to see where this one really ranks.';
+    : 'Twetch lists some trait counts wrong and still counts burned Twonks. Tap to see where this one really ranks.';
   return { title, description, url, image: image ? MEDIA + image : `${SITE}/card.png`, square: !!image };
 }
