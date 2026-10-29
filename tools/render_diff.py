@@ -270,11 +270,14 @@ def main():
             fakes_w.append((i, r, t))
     H, W = shape
     kinds = ['erase', 'shift', 'paste']
+    # glitch sizes, in cells: a single cell, 2 by 2, and 3 to 6 wide; each size with each kind of damage
+    sizes = [(1, 1), (2, 2), (3, 6)]
     fakes_g = []
     while len(fakes_g) < plant:
         i, kind = int(rng.integers(len(nums))), kinds[len(fakes_g) % 3]
+        lo, hi = sizes[(len(fakes_g) // 3) % 3]
         art = G[i].reshape(shape).copy()
-        h, w = int(rng.integers(3, 7)), int(rng.integers(3, 7))
+        h, w = int(rng.integers(lo, hi + 1)), int(rng.integers(lo, hi + 1))
         y, x = int(rng.integers(1, H - h - 1)), int(rng.integers(1, W - w - 1))
         if kind == 'erase':
             art[y:y + h, x:x + w] = art[0, 0]
@@ -282,13 +285,13 @@ def main():
             art[y:y + h, x:x + w] = G[i].reshape(shape)[y + 1:y + h + 1, x + 1:x + w + 1]
         else:
             art[y:y + h, x:x + w] = G[int(rng.integers(len(nums)))].reshape(shape)[y:y + h, x:x + w]
-        if int((art.ravel() != G[i]).sum()) >= 4:
-            fakes_g.append((i, art.ravel(), kind))
+        if int((art.ravel() != G[i]).sum()) >= 1:
+            fakes_g.append((i, art.ravel(), kind, max(h, w) if hi < 3 else 3))
     wi = [i for i, _, _ in fakes_w]
-    gi = [i for i, _, _ in fakes_g]
+    gi = [i for i, _, _, _ in fakes_g]
     QV = np.concatenate([V, np.array([r for _, r, _ in fakes_w]), V[gi]])
     own = np.concatenate([np.arange(len(nums)), wi, gi])  # the Twonk each record belongs to: left out of its groups
-    judge = np.concatenate([G, G[wi], np.array([a for _, a, _ in fakes_g])])  # the art being judged
+    judge = np.concatenate([G, G[wi], np.array([a for _, a, _, _ in fakes_g])])  # the art being judged
     first = peel(G, V, K, order, (V, np.arange(len(nums)), G))
     pred, judged = peel(G, V, K, order, (QV, own, judge), first)
     print(f"  re-rendered {len(QV)} records [{time.time() - t0:.0f}s]")
@@ -312,6 +315,10 @@ def main():
         gk = {k: int(sum(1 for x, g in zip(pg, fakes_g) if g[2] == k and x >= s)) for k in kinds}
         table.append({'patch': s, 'real': rf, 'wrong': wf, 'glitch': gk})
         print(f"  {s:>8} | {rf:>10} | {wf:>4}/{int((~same_art).sum())} | {sum(gk.values()):>4}/{P} ({gk['erase']}/{gk['shift']}/{gk['paste']})")
+    print("  glitch fakes caught by size (patch >= 1 / 2 / 3 / 4 / 5):")
+    for z, label in [(1, 'single cell'), (2, '2 by 2'), (3, '3 to 6 wide')]:
+        sel = [k for k, g in enumerate(fakes_g) if g[3] == z]
+        print(f"    {label:>11}: " + ' / '.join(f"{int((pg[sel] >= t).sum())}" for t in range(1, 6)) + f"  of {len(sel)}")
     cov = judged[:N].mean(1)
     print(f"  custom one-of-ones (not judged): {int(custom.sum())}; Twonks judged on under half their cells: {int(((cov < 0.5) & ~custom).sum())}, under 90%: {int(((cov < 0.9) & ~custom).sum())}")
     print(f"  cells judged per Twonk: median {np.median(cov):.0%}, lowest {cov.min():.0%}; {int(same_art.sum())} planted swaps change nothing in the picture (not counted)")
