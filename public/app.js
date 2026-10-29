@@ -81,6 +81,10 @@ function parse(text) {
 
 // ---------- the answer ----------
 const tierName = (i) => (i >= 0 ? TIERS[i] : null);
+// counts and doses keep changing (burns, vaccinations), so a rank is only true as of the day the data was read
+const asOf = () => { const d = new Date(index.at); return `as of ${d.getDate()} ${d.toLocaleString('en-US', { month: 'short' })}`; };
+// the deliberate glitch one-of-ones (Frog Cartel #1240, Naka Motor Club #2222, Rare Sirloins #1213): "Missing" traits by design
+const missingPiece = (f, row) => f.types.filter((_, t) => { const v = row[T0 + t]; return v >= 0 && /^missing/i.test(f.traits[t][v][0]) && f.traits[t][v][2] === 1; }).length >= 3;
 const img = (f, row, cls = '') => row && row[3]
   ? `<img class="${cls}" src="${MEDIA}${row[3]}" alt="${esc(nameOf(f, row[0]))}" loading="lazy" decoding="async">`
   : `<span class="${cls} noimg" aria-hidden="true"></span>`;
@@ -93,12 +97,7 @@ function steps(f, row) {
   const [d1, d2, d3] = [row[5], row[6], row[7]];
   const say = (d, what) => { if (d) out.push(`<li><b class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '+' : '−'}${fmt(Math.abs(d))}</b> ${what}</li>`); };
   say(d1, f.pooled ? `counted within ${esc(f.name)}, not across all ${fmt(f.pool)} that Twetch pools it with` : 'trait counts recounted from the Twonks themselves');
-  // a Twonk without the trait loses no points; the ones that have it gain, and some pass it
-  const lacks = f.unscored.every((u) => row[T0 + f.types.indexOf(u)] < 0);
-  const them = f.unscored.length > 1 ? 'them' : 'it';
-  say(d2, lacks && d2 < 0
-    ? `Twetch leaves ${esc(f.unscored.join(' and '))} out of its rank. This one has none, so Twonks that have ${them} move past it`
-    : `${esc(f.unscored.join(' and '))} counted too (Twetch leaves ${them} out of its rank)`);
+  say(d2, `${esc(f.unscored.join(' and '))} counted too (Twetch leaves ${f.unscored.length > 1 ? 'them' : 'it'} out of its rank)`);
   say(d3, 'burned Twonks no longer count');
   return out;
 }
@@ -112,8 +111,13 @@ function traitRows(f, row) {
     const notes = [];
     if (beats && ex) notes.push(`<span class="flag hot">Labelled ${tierName(tier)}, yet rarer than ${beats === 1 ? 'an' : fmt(beats)} ${beats === 1 ? tierName(ex[2]) : 'higher-labelled'} trait${beats === 1 ? '' : 's'}, like ${esc(f.traits[ex[0]][ex[1]][0])} (${tierName(ex[2])}, ${fmt(ex[3])})</span>`);
     // only a miscount over the same Twonks Twetch counts; a gap from leaving burned ones out is not Twetch's error
-    if (reported != null && reported !== cAll && !f.pooled) notes.push(`<span class="flag">Twetch counts ${fmt(reported)}, really ${fmt(cAll)}</span>`);
+    if (reported != null && reported !== cAll && !f.pooled) notes.push(`<span class="flag">Twetch lists ${fmt(reported)}. The records show ${fmt(cAll)}.</span>`);
     if (f.unscored.includes(f.types[t])) notes.push(`<span class="flag">Not in Twetch's rank</span>`);
+    if ((f.counts || []).includes(f.types[t])) notes.push(`<span class="flag">A count: shown, not ranked</span>`);
+    const typo = (f.merged || []).find(([type, names]) => type === f.types[t] && names[0].trim() === String(raw).trim());
+    if (typo) notes.push(`<span class="flag">Written two ways on record (one with a stray space), counted as one trait</span>`);
+    const seen = (f.art?.[row[0]] || []).find(([type]) => type === f.types[t]);
+    if (seen) notes.push(`<span class="flag hot">The art shows ${esc(seen[2])}. The on-chain record says ${esc(seen[1])}. Ranked by the record.</span>`);
     rows.push({ c, html: `
       <li class="lozenge trait">
         <span class="tt">${esc(f.types[t])}</span>
@@ -163,7 +167,7 @@ function render(f, number) {
     sfx.down();
     return show();
   }
-  if (!row[2]) return fail(`${name} has no traits on Twetch, so it has no rank to check.`);
+  if (!row[2]) return fail(`${name} has no traits on Twetch, so it has no rank to check.${f.art?.[number] ? ' Its art shows a full Twonk, but its on-chain record lists no traits.' : ''}`);
 
   const gained = row[4] ? row[4] - row[2] : null;
   const head = gained == null ? `<p class="call">Twetch shows no rank for ${esc(f.name)}, so this is the only one there is.</p>`
@@ -182,9 +186,10 @@ function render(f, number) {
         <h2>${esc(name)}</h2>
         <div class="ranks">
           <div class="r twetch"><span>Twetch</span><b>${row[4] ? '#' + fmt(row[4]) : '–'}</b><small>${row[4] ? 'of ' + fmt(f.twetchOf) : 'no rank'}</small></div>
-          <div class="r true"><span>True rank</span><b class="slam">#${fmt(row[2])}</b><small>of ${fmt(f.n)}</small></div>
+          <div class="r true"><span>True rank</span><b class="slam">#${fmt(row[2])}</b><small>of ${fmt(f.n)}, ${asOf()}</small></div>
         </div>
         ${head}
+        ${missingPiece(f, row) ? `<p class="fine">A one-of-one "Missing" piece: every trait is unique by design.</p>` : ''}
         ${st.length ? `<ul class="steps" aria-label="What moved it">${st.join('')}</ul>` : ''}
         ${printed}
         <p class="acts"><a class="out" href="${twetchLink}" target="_blank" rel="noopener">View on Twetch</a><button class="out share" type="button" data-share="${esc(shareUrl(f, number))}" data-title="${esc(`${name}: Twetch says ${row[4] ? '#' + fmt(row[4]) : 'no rank'}. Final answer?`)}">Share</button></p>
@@ -202,7 +207,7 @@ function render(f, number) {
         <p>Same formula Twetch uses for ${esc(f.name)} (${f.method === 'inv' ? 'rarity score: one over each trait\'s share, added up' : 'information content: how surprising each trait is, added up'}), with three changes:</p>
         <ul>
           <li>Every count is taken from the Twonks themselves. Twetch counts Signature "1 of 1" as one, though more frogs carry it.${f.pooled ? ` ${esc(f.name)} is counted within itself; Twetch counts it across ${fmt(f.pool)}.` : ''}</li>
-          <li>Every trait counts${f.unscored.length ? `, ${esc(f.unscored.join(' and '))} included` : ''}.</li>
+          <li>Every trait counts${f.unscored.length ? `, ${esc(f.unscored.join(' and '))} included` : ''}.${f.counts?.length ? ` ${esc(f.counts.join(' and '))} is a count, shown but not ranked.` : ''}</li>
           <li>Burned Twonks no longer count${Object.keys(f.burned).length ? ` (${fmt(Object.keys(f.burned).length)} in ${esc(f.name)})` : ''}.</li>
         </ul>
         <p>A Twonk's place among ${fmt(f.n)} living ${esc(f.name)}, rarest first.</p>

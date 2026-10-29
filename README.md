@@ -7,7 +7,7 @@ Put in a Twonk (a Twetch link, or "Frog Cartel 514") and see its true rank next 
 Same formula Twetch uses per collection (information content; rarity score for NOOGIES), with three named steps, each shown on the page with the places it moved the Twonk:
 
 1. **Counts:** recounted from the Twonks themselves (Twetch counts Signature "1 of 1" as 1; 33 frogs carry it). Pooled collections (Graveyard, Apu Cartel, Lab Monkes, Special Forces) are counted within themselves.
-2. **Every trait:** traits Twetch leaves out of its rank (Vaccinations, Vaccine Effect) count.
+2. **Every trait:** traits Twetch leaves out of its rank (Graveyard's Vaccine Effect) count. Counts stored as plain numbers (Vaccinations, Astro Apes' Slurps) are shown on the Twonk, not ranked.
 3. **Burned left out:** Twonks Twetch marks `consumed` no longer count (Frog Cartel 808, LizerVAXX 2,029, Slurp Juice 2,517).
 
 Both ranks show "of N". Twetch's rank is restated as its place within the collection, so the two compare like for like.

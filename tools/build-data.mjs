@@ -20,6 +20,8 @@ const byName = new Map(raws.map((r) => [r.name, r]));
 // Burned numbers come from Twetch's own "consumed" flag (tools/bake-burned.mjs). A burned frog that lives on
 // in Graveyard or Apu Cartel keeps its number there, so the page can say where it went.
 const consumed = JSON.parse(await readFile(new URL('./burned.json', import.meta.url), 'utf8'));
+// { collection address: { number: [[trait type, value on record, value the art shows], ...] } }
+const artFlags = JSON.parse(await readFile(new URL('./art-flags.json', import.meta.url), 'utf8'));
 const successors = { 'Frog Cartel': ['Graveyard', 'Apu Cartel'] };
 const burnedIn = new Map();
 for (const raw of raws) {
@@ -38,6 +40,8 @@ for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
   if (!raw.tok.length || !raw.types.length) continue;
   const best = readMethod(decodeFleet(raw)).best;
   const doc = trueFleet(raw, { method: best ? best.method : 'info', burned: burnedIn.get(raw.name) });
+  // art that disagrees with the on-chain record, checked by eye after tools/audit_art.py flagged it; shown, never ranked
+  doc.art = artFlags[raw.c] || {};
   if (doc.n < 2) continue;
   const body = JSON.stringify(doc);
   await writeFile(new URL(`${raw.c}.json`, OUT), body);

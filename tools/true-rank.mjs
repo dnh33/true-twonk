@@ -4,21 +4,53 @@
 // Twonk and never passes a rule change off as a Twetch mistake:
 //  1. counts: every count recounted from the Twonks themselves (Signature "1 of 1" is held by more than one frog;
 //     a pooled fleet such as Graveyard is counted within itself instead of across all frogs);
-//  2. every trait: traits Twetch leaves out of its rank (Vaccinations) are scored too;
+//  2. every trait: traits Twetch leaves out of its rank (Graveyard's Vaccine Effect) are scored too; counts stored as
+//     plain numbers (Vaccinations, Slurps) are shown, never scored;
 //  3. burned left out: Twonks Twetch marks consumed no longer count.
 // The formula stays the one Twetch uses for the fleet (information content, or rarity score for NOOGIES).
 
+/** One trait written two ways that differ only by stray spaces ("Walrus Moustache " and "Walrus Moustache") is one
+ *  trait: merge them and say so. Returns a copy of raw plus the merges made, as [type, [names]]. */
+export function mergeTypos(raw) {
+  const traits = raw.traits.map((vals) => vals.map((v) => [...v]));
+  const remap = raw.traits.map((vals) => vals.map((_, v) => v));
+  const merged = [];
+  traits.forEach((vals, t) => {
+    const first = new Map();
+    vals.forEach((val, v) => {
+      const key = String(val[0]).trim();
+      if (!first.has(key)) { first.set(key, v); return; }
+      const keep = first.get(key);
+      remap[t][v] = keep;
+      if (val[2] != null) vals[keep][2] = (vals[keep][2] ?? 0) + val[2];
+      merged.push([raw.types[t], [vals[keep][0], val[0]]]);
+      vals[keep][0] = key;
+    });
+  });
+  if (!merged.length) return { raw, merged };
+  const tok = raw.tok.map((row) => row.map((x, i) => (i >= 4 && i < 4 + raw.types.length && x >= 0 ? remap[i - 4][x] : x)));
+  return { raw: { ...raw, traits, tok }, merged };
+}
+
 /** method: 'info' | 'inv'. burned: Map<number, string> from token number to the fleet it became ('' when none). */
-export function trueFleet(raw, { method = 'info', burned = new Map() } = {}) {
+export function trueFleet(input, { method = 'info', burned = new Map() } = {}) {
+  const { raw, merged } = mergeTypos(input);
   const T = raw.types.length;
   const has = (row) => { for (let t = 0; t < T; t++) if (row[4 + t] >= 0) return true; return false; };
   const withTraits = raw.tok.filter(has);
   const alive = withTraits.filter((row) => !burned.has(row[0]));
+  // A count stored as a plain number (Vaccinations: LizerVAXX doses burned into a frog; Astro Apes' Slurps)
+  // is shown, never ranked: the rank stored on every Twonk leaves it out, and it keeps changing after mint.
+  const numeric = raw.types.map((_, t) => raw.traits[t].length > 0 && raw.traits[t].every((v) => /^\s*\d+\s*$/.test(String(v[0]))));
   const anyReported = raw.traits.some((vals) => vals.some((v) => v[2] != null));
-  const twetchScores = raw.types.map((_, t) => !anyReported || raw.traits[t].some((v) => v[2] != null));
-  // Twetch's reported counts add up to the pool it counted over; more than the fleet means a pooled fleet
-  const pool = Math.max(0, ...raw.traits.filter((vals) => vals.some((v) => v[2] != null)).map((vals) => vals.reduce((s, v) => s + (v[2] ?? 0), 0)));
-  const pooled = pool > raw.tok.length * 1.05;
+  const twetchScores = raw.types.map((_, t) => !numeric[t] && (!anyReported || raw.traits[t].some((v) => v[2] != null)));
+  // Twetch's reported counts add up to the pool it counted over; a typical trait adding up to far more than the fleet
+  // means a pooled fleet (Graveyard, Apu Cartel, Lab Monkes, Special Forces: 1.5 to 15 times). The median, not the
+  // largest sum: a few inflated values (Lizer Corp lists 127 on every "None", where 24 to 49 hold it) push one
+  // trait about 5% over and must not make a fleet look pooled.
+  const sums = raw.traits.filter((vals) => vals.some((v) => v[2] != null)).map((vals) => vals.reduce((s, v) => s + (v[2] ?? 0), 0)).sort((a, b) => a - b);
+  const pool = sums.length ? sums[sums.length - 1] : 0;
+  const pooled = sums.length > 0 && sums[Math.floor(sums.length / 2)] > raw.tok.length * 1.25;
 
   const countOver = (rows) => {
     const c = raw.traits.map((vals) => vals.map(() => 0));
@@ -43,7 +75,7 @@ export function trueFleet(raw, { method = 'info', burned = new Map() } = {}) {
   // step 0: Twetch's own order, restated as a place among this fleet's Twonks with traits
   const twetchRanked = withTraits.filter((row) => row[1] > 0).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
   const s0 = new Map(twetchRanked.map((row, i) => [row[0], i + 1]));
-  const allTypes = raw.types.map(() => true);
+  const allTypes = raw.types.map((_, t) => !numeric[t]);
   const cAll = countOver(withTraits);
   const s1 = rankOver(withTraits, cAll, twetchScores).rank;
   const s2 = rankOver(withTraits, cAll, allTypes).rank;
@@ -84,8 +116,11 @@ export function trueFleet(raw, { method = 'info', burned = new Map() } = {}) {
     v: 2, c: raw.c, name: raw.name, at: raw.at, method, n: N,
     twetchOf: twetchRanked.length, twetchPrintedOf: twetchRanked.reduce((m, r) => Math.max(m, r[1]), 0),
     pooled, pool: pooled ? pool : 0, withTraits: withTraits.length,
-    unscored: raw.types.filter((_, t) => !twetchScores[t]),
+    // traits Twetch leaves out that step 2 scores, and counts shown but never scored
+    unscored: raw.types.filter((_, t) => !twetchScores[t] && !numeric[t]),
+    counts: raw.types.filter((_, t) => numeric[t]),
     burned: Object.fromEntries([...burned].filter(([num]) => raw.tok.some((row) => row[0] === num))),
     types: raw.types, tiers: raw.tiers, traits, tok, top: final.order.slice(0, 3).map((x) => x.n), names: raw.names || {},
+    merged,
   };
 }
