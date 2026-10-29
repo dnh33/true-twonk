@@ -211,6 +211,7 @@ function traitRows(f, row) {
     if (reported != null && reported !== cAll && !f.pooled) notes.push(`<span class="flag">Twetch lists ${fmt(reported)}. The records show ${fmt(cAll)}.</span>`);
     if (f.unscored.includes(f.types[t])) notes.push(`<span class="flag">Not in Twetch's rank</span>`);
     if ((f.counts || []).includes(f.types[t])) notes.push(`<span class="flag">A count: shown, not ranked</span>`);
+    if ((f.listingOnly || []).includes(f.types[t])) notes.push(`<span class="flag">In Twetch's listing, not on chain: shown, not ranked</span>`);
     const typo = (f.merged || []).find(([type, names]) => type === f.types[t] && names[0].trim() === String(raw).trim());
     if (typo) notes.push(`<span class="flag">Written two ways on record (one with a stray space), counted as one trait</span>`);
     const seen = (f.art?.[row[0]] || []).find(([type]) => type === f.types[t]);
@@ -267,7 +268,9 @@ function render(f, number) {
   if (!row[2]) {
     // no traits in Twetch's record: nothing to recount. Some of these are not on the blockchain at all
     // (tools/chain-status.json): Twetch lists them, marks them pending, and no transaction exists.
+    // Or its traits are only in Twetch's listing, never on chain (Egg's Color): shown, with nothing to rank.
     const off = (f.offChain || []).includes(number);
+    const listed = (f.listingOnly || []).filter((type) => row[T0 + f.types.indexOf(type)] >= 0);
     const twetch = row[1] ? `Twetch shows #${fmt(row[1])}` : 'Twetch shows no rank';
     if (!row[3]) return fail(`${name} has no traits in Twetch's record${row[1] ? `, though ${twetch}` : ''}, so there is nothing to recount.`);
     document.title = `${name} · True Twonk`;
@@ -278,15 +281,22 @@ function render(f, number) {
           <h2>${esc(name)}</h2>
           <div class="ranks">
             <div class="r twetch"><span>Twetch</span><b>${row[1] ? '#' + fmt(row[1]) : '–'}</b><small>${row[1] ? 'as Twetch prints it' : 'no rank'}</small></div>
-            <div class="r"><span>True rank</span><b>None</b><small>${off ? 'not on chain' : 'no traits on record'}</small></div>
+            <div class="r"><span>True rank</span><b>None</b><small>${off ? 'not on chain' : listed.length ? 'nothing on chain' : 'no traits on record'}</small></div>
           </div>
           <p class="call">${off
             ? `Not on the blockchain. Twetch lists it and ${twetch.replace('Twetch shows', 'shows')}, but marks it pending with no owner, and no transaction exists for it (checked ${day(f.chainChecked)}). So there is no on-chain record to rank.`
-            : 'Its record lists no traits, so there is nothing to recount.'}</p>
+            : listed.length
+              ? `Its on-chain record lists no traits. ${esc(listed.join(' and '))} ${listed.length === 1 ? 'is' : 'are'} only in Twetch's listing (checked ${day(f.chainChecked)}), so there is nothing on chain to rank.`
+              : 'Its record lists no traits, so there is nothing to recount.'}</p>
           <p class="acts"><a class="out" href="https://twetch.com/market/${f.c}?token=${number}" target="_blank" rel="noopener">View on Twetch</a>${off ? '<a class="out" href="/#misprints">Not-on-chain list</a>' : ''}</p>
-          ${chainBox()}
+          ${listed.length ? '' : chainBox()}
         </div>
-      </div>`;
+      </div>${listed.length ? `
+      <div class="traits-wrap">
+        <h3>Its traits</h3>
+        <ul class="traits">${traitRows(f, row)}</ul>
+        ${chainBox()}
+      </div>` : ''}`;
     wireChain(out, f, row);
     sfx.same();
     return show();

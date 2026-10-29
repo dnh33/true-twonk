@@ -144,6 +144,8 @@ async function check(fleet) {
     else if (printed !== stored) res.rankDiffs.push({ n, twetch: printed, chain: stored });
   }
   res.extraTypes = [...res.extraTypes];
+  // trait types the site shows that no on-chain record in the collection holds (Egg's Color): never ranked
+  res.listingOnly = Object.entries(res.offChainTraits).filter(([, k]) => res.onChain > 0 && k === res.onChain).map(([t]) => t);
   // a Twonk the chain does not know must also be one Twetch marks pending; anything else is a lookup to re-check
   const known = current ? state : await tokenStates(fleet.c, res.notOnChain);
   // a burned Twonk (Twetch: consumed, e.g. used up in a vaccination) can have no current output either: it was on
@@ -180,15 +182,18 @@ for (const f of index.fleets) {
 // know and Twetch marks pending. A run with errors or unexplained misses leaves the list as it was.
 const clean = want === 'all' && report.collections.every((c) => !c.error && !c.unexplained.length && !c.lookupFailed.length);
 if (clean) {
-  const notOnChain = {};
+  const notOnChain = {}, listingOnly = {};
   for (const c of report.collections) {
     const nums = c.notOnChain.filter((x) => x.pending).map((x) => x.n);
     if (nums.length) notOnChain[c.c] = nums;
+    if (c.listingOnly.length) listingOnly[c.c] = c.listingOnly;
   }
   await writeFile(new URL('./chain-status.json', import.meta.url), `${JSON.stringify({
     checked: report.at.slice(0, 10),
     how: 'Twetch token API marks it pending with no owner, and WhatsOnChain does not know its transaction (tools/chain-check.mjs)',
     notOnChain,
+    // trait types in Twetch's listing that no on-chain record of the collection holds: shown, never ranked
+    listingOnly,
   }, null, 1)}\n`);
   console.log(`tools/chain-status.json refreshed: ${Object.values(notOnChain).flat().length} Twonks not on chain`);
 } else if (want === 'all') console.log('tools/chain-status.json NOT refreshed: the run had errors, unexplained misses or failed lookups');

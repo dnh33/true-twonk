@@ -23,7 +23,8 @@ const consumed = JSON.parse(await readFile(new URL('./burned.json', import.meta.
 // { collection address: { number: [[trait type, value on record, value the art shows], ...] } }
 const artFlags = JSON.parse(await readFile(new URL('./art-flags.json', import.meta.url), 'utf8'));
 const liveFlags = {}; // the flags whose records still match, per collection
-// { checked: date, notOnChain: { collection address: [numbers] } }: Twonks Twetch lists that are not on the blockchain
+// { checked: date, notOnChain: { collection address: [numbers] } }: Twonks Twetch lists that are not on the blockchain;
+// listingOnly: { collection address: [trait types] }: traits no on-chain record holds, shown and never ranked
 const chainStatus = JSON.parse(await readFile(new URL('./chain-status.json', import.meta.url), 'utf8'));
 const successors = { 'Frog Cartel': ['Graveyard', 'Apu Cartel'] };
 const burnedIn = new Map();
@@ -42,7 +43,7 @@ const index = [];
 for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
   if (!raw.tok.length || !raw.types.length) continue;
   const best = readMethod(decodeFleet(raw)).best;
-  const doc = trueFleet(raw, { method: best ? best.method : 'info', burned: burnedIn.get(raw.name) });
+  const doc = trueFleet(raw, { method: best ? best.method : 'info', burned: burnedIn.get(raw.name), listingOnly: chainStatus.listingOnly?.[raw.c] || [] });
   // art that disagrees with the on-chain record, checked by eye after tools/audit_art.py flagged it; shown, never ranked.
   // A note is kept only while the record still says what the note claims: if Twetch fixes a record, the note goes.
   doc.art = {};
@@ -61,7 +62,8 @@ for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
   if (doc.n < 2) continue;
   const body = JSON.stringify(doc);
   await writeFile(new URL(`${raw.c}.json`, OUT), body);
-  const lead = doc.tok.find((r) => r[0] === doc.top[0]);
+  // the rarest one's picture, or the first one with a picture when nothing is ranked (Egg)
+  const lead = doc.tok.find((r) => r[0] === doc.top[0]) || doc.tok.find((r) => r[3]);
   index.push({ c: raw.c, name: raw.name, slug: slug(raw.name), n: doc.n, ranked: doc.twetchOf > 0, method: doc.method, icon: lead ? lead[3] : null });
   const buckets = new Map();
   for (const r of doc.tok) {

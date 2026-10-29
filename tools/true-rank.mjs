@@ -32,8 +32,10 @@ export function mergeTypos(raw) {
   return { raw: { ...raw, traits, tok }, merged };
 }
 
-/** method: 'info' | 'inv'. burned: Map<number, string> from token number to the fleet it became ('' when none). */
-export function trueFleet(input, { method = 'info', burned = new Map() } = {}) {
+/** method: 'info' | 'inv'. burned: Map<number, string> from token number to the fleet it became ('' when none).
+ *  listingOnly: trait types no on-chain record of the fleet holds (Egg's Color is only in Twetch's listing; found by
+ *  tools/chain-check.mjs): shown, never scored, since the on-chain record ranks. With nothing left to score, no ranks. */
+export function trueFleet(input, { method = 'info', burned = new Map(), listingOnly = [] } = {}) {
   const { raw, merged } = mergeTypos(input);
   const T = raw.types.length;
   const has = (row) => { for (let t = 0; t < T; t++) if (row[4 + t] >= 0) return true; return false; };
@@ -42,8 +44,9 @@ export function trueFleet(input, { method = 'info', burned = new Map() } = {}) {
   // A count stored as a plain number (Vaccinations: LizerVAXX doses burned into a frog; Astro Apes' Slurps)
   // is shown, never ranked: the rank stored on every Twonk leaves it out, and it keeps changing after mint.
   const numeric = raw.types.map((_, t) => raw.traits[t].length > 0 && raw.traits[t].every((v) => /^\s*\d+\s*$/.test(String(v[0]))));
+  const listing = raw.types.map((type) => listingOnly.includes(type));
   const anyReported = raw.traits.some((vals) => vals.some((v) => v[2] != null));
-  const twetchScores = raw.types.map((_, t) => !numeric[t] && (!anyReported || raw.traits[t].some((v) => v[2] != null)));
+  const twetchScores = raw.types.map((_, t) => !numeric[t] && !listing[t] && (!anyReported || raw.traits[t].some((v) => v[2] != null)));
   // Twetch's reported counts add up to the pool it counted over; a typical trait adding up to far more than the fleet
   // means a pooled fleet (Graveyard, Apu Cartel, Lab Monkes, Special Forces: 1.5 to 15 times). The median, not the
   // largest sum: a few inflated values (Lizer Corp lists 127 on every "None", where 24 to 49 hold it) push one
@@ -75,12 +78,14 @@ export function trueFleet(input, { method = 'info', burned = new Map() } = {}) {
   // step 0: Twetch's own order, restated as a place among this fleet's Twonks with traits
   const twetchRanked = withTraits.filter((row) => row[1] > 0).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
   const s0 = new Map(twetchRanked.map((row, i) => [row[0], i + 1]));
-  const allTypes = raw.types.map((_, t) => !numeric[t]);
+  const allTypes = raw.types.map((_, t) => !numeric[t] && !listing[t]);
+  // nothing on chain to score: rank nobody, rather than order equal scores by number
+  const ranked = (rows) => (allTypes.some(Boolean) ? rows : []);
   const cAll = countOver(withTraits);
-  const s1 = rankOver(withTraits, cAll, twetchScores).rank;
-  const s2 = rankOver(withTraits, cAll, allTypes).rank;
+  const s1 = rankOver(ranked(withTraits), cAll, twetchScores).rank;
+  const s2 = rankOver(ranked(withTraits), cAll, allTypes).rank;
   const count = countOver(alive);
-  const final = rankOver(alive, count, allTypes);
+  const final = rankOver(ranked(alive), count, allTypes);
   const N = alive.length;
 
   // Where the designers' label disagrees with the count: higher-labelled traits that more Twonks hold.
@@ -117,8 +122,9 @@ export function trueFleet(input, { method = 'info', burned = new Map() } = {}) {
     twetchOf: twetchRanked.length, twetchPrintedOf: twetchRanked.reduce((m, r) => Math.max(m, r[1]), 0),
     pooled, pool: pooled ? pool : 0, withTraits: withTraits.length,
     // traits Twetch leaves out that step 2 scores, and counts shown but never scored
-    unscored: raw.types.filter((_, t) => !twetchScores[t] && !numeric[t]),
+    unscored: raw.types.filter((_, t) => !twetchScores[t] && !numeric[t] && !listing[t]),
     counts: raw.types.filter((_, t) => numeric[t]),
+    listingOnly: raw.types.filter((_, t) => listing[t]),
     burned: Object.fromEntries([...burned].filter(([num]) => raw.tok.some((row) => row[0] === num))),
     types: raw.types, tiers: raw.tiers, traits, tok, top: final.order.slice(0, 3).map((x) => x.n), names: raw.names || {},
     merged,

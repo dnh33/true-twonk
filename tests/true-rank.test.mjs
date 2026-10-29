@@ -102,6 +102,23 @@ test('a count stored as a plain number (Vaccinations) is shown, never scored', (
   assert.deepEqual(f.traits[1].map((t) => t[2]), [4, 1], 'the count is still shown');
 });
 
+test('a trait no on-chain record holds is shown, never scored', () => {
+  const f = trueFleet(raw, { listingOnly: ['Effect'] });
+  assert.deepEqual(f.listingOnly, ['Effect']);
+  assert.deepEqual(f.unscored, [], 'not "left out by Twetch": it is not on chain at all');
+  const three = f.tok.find((row) => row[0] === 3);
+  assert.equal(three[6], 0, 'its rare Effect moves it nowhere');
+  assert.deepEqual(f.traits[1].map((t) => t[2]), [4, 1], 'the count is still shown');
+});
+
+test('a fleet with nothing on chain to rank (Egg: Color only in Twetch\'s listing) gets no ranks at all', () => {
+  const f = trueFleet(raw, { listingOnly: ['Hat', 'Effect'] });
+  assert.deepEqual(f.tok.map((row) => row[2]), [0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(f.top, []);
+  assert.equal(f.n, 5, 'still counted, so trait shares can be shown');
+  assert.deepEqual(f.traits[0].map((t) => t[2]), [3, 1, 1]);
+});
+
 test('one inflated trait (Lizer Corp lists 127 on every "None") does not make a fleet look pooled', () => {
   const tok = Array.from({ length: 20 }, (_, i) => [i + 1, i + 1, 0, 'x', i % 2, i % 4 === 0 ? 1 : 0]);
   const r = {
