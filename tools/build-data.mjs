@@ -23,6 +23,8 @@ const consumed = JSON.parse(await readFile(new URL('./burned.json', import.meta.
 // { collection address: { number: [[trait type, value on record, value the art shows], ...] } }
 const artFlags = JSON.parse(await readFile(new URL('./art-flags.json', import.meta.url), 'utf8'));
 const liveFlags = {}; // the flags whose records still match, per collection
+// { checked: date, notOnChain: { collection address: [numbers] } }: Twonks Twetch lists that are not on the blockchain
+const chainStatus = JSON.parse(await readFile(new URL('./chain-status.json', import.meta.url), 'utf8'));
 const successors = { 'Frog Cartel': ['Graveyard', 'Apu Cartel'] };
 const burnedIn = new Map();
 for (const raw of raws) {
@@ -54,6 +56,8 @@ for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
     else console.warn(`art flag dropped: ${raw.name} #${n}, its record no longer says what tools/art-flags.json claims; re-run tools/audit_art.py`);
   }
   liveFlags[raw.c] = doc.art;
+  doc.offChain = chainStatus.notOnChain[raw.c] || [];
+  doc.chainChecked = chainStatus.checked;
   if (doc.n < 2) continue;
   const body = JSON.stringify(doc);
   await writeFile(new URL(`${raw.c}.json`, OUT), body);
@@ -92,6 +96,20 @@ for (const [c, toks] of Object.entries(liveFlags)) {
   }
 }
 misprints.sort((a, b) => (a.kind === b.kind ? a.fleet.localeCompare(b.fleet) || a.n - b.n : a.kind === 'wrong' ? -1 : 1));
+// Twonks Twetch lists that are not on the blockchain (tools/chain-status.json, from tools/chain-check.mjs): not
+// misprints, since there is no on-chain record to misprint; listed apart, with the date they were checked
+const offChain = [];
+for (const [c, nums] of Object.entries(chainStatus.notOnChain)) {
+  const fleet = index.find((f) => f.c === c);
+  if (!fleet) continue;
+  const doc = JSON.parse(await readFile(new URL(`${c}.json`, OUT), 'utf8'));
+  for (const n of nums) {
+    const row = doc.tok.find((r) => r[0] === n);
+    if (row) offChain.push({ c, slug: fleet.slug, fleet: fleet.name, n, name: doc.names[n] || `${fleet.name} #${n}`, image: row[3], twetch: row[1] });
+  }
+}
+offChain.sort((a, b) => a.fleet.localeCompare(b.fleet) || a.n - b.n);
 await writeFile(new URL('misprints.json', OUT), JSON.stringify({
   checked: ['Frog Cartel', 'Graveyard', 'Lizer Corp', 'Planetary Pixels', 'Rare Sirloins'], of: index.length, misprints,
+  chainChecked: chainStatus.checked, offChain,
 }));

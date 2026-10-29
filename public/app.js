@@ -1,6 +1,8 @@
 // True Twonk: one Twonk in, its true rank and the collection's top 3 out.
 // Every figure comes from public/data, built from Twetch's API at build time (tools/build-data.mjs).
-// The only live requests are the Twonk images, straight from Twetch's media route.
+// The only live requests are the Twonk images, straight from Twetch's media route, and the on-chain check a visitor
+// opens (Twetch's API for the current output, WhatsOnChain for the transaction).
+import { chainRecord } from '/chain.js';
 
 const MEDIA = 'https://api.twetch.com/v1/media/';
 const TIERS = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Exotic'];
@@ -86,13 +88,61 @@ function parse(text) {
 const tierName = (i) => (i >= 0 ? TIERS[i] : null);
 // counts and doses keep changing (burns, vaccinations), so a rank is only true as of the day the data was read
 const asOf = () => { const d = new Date(index.at); return `as of ${d.getDate()} ${d.toLocaleString('en-US', { month: 'short' })}`; };
+// a checked-on date (YYYY-MM-DD) written like the rest of the page: 29 Oct
+const day = (iso) => { const d = new Date(`${iso}T00:00:00Z`); return `${d.getUTCDate()} ${d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })}`; };
 // a Twonk whose on-chain record does not match its art (checked by eye, tools/art-flags.json). Misprints are a tier of
 // their own, shown beside the rank and never inside it: the rank follows the record.
 const KIND = { wrong: 'wrong-trait', blank: 'blank-record' };
 const misprintOf = (f, n) => misprints?.misprints.find((m) => m.c === f.c && m.n === n) || null;
 const kindCount = (m) => misprints.misprints.filter((x) => x.kind === m.kind).length;
 const misprintBox = (m) => `
-  <div class="r misp"><span>Misprint</span><b>1 of ${kindCount(m)}</b><small>${KIND[m.kind]} misprint (1 of ${misprints.misprints.length} known)</small></div>`;
+  <div class="r misp"><span>Misprint</span><b>1 of ${kindCount(m)}</b><small>${kindCount(m) === 1 ? `the only known ${KIND[m.kind]} misprint` : `${KIND[m.kind]} misprint (1 of ${misprints.misprints.length} known)`}</small></div>`;
+
+// ---------- check it on the blockchain ----------
+// Read live, in the visitor's browser: Twetch's API names the Twonk's current output, WhatsOnChain serves that raw
+// transaction, and chain.js reads the record written in it. Nothing passes through True Twonk.
+const chainBox = () => `
+  <details class="chain"><summary>Check it on the blockchain</summary><div class="chain-body"><p class="fine">Reading the blockchain…</p></div></details>`;
+function wireChain(out, f, row) {
+  const box = out.querySelector('details.chain');
+  if (!box) return;
+  box.addEventListener('toggle', () => { if (box.open && !box.dataset.done) { box.dataset.done = '1'; factCheck(box.querySelector('.chain-body'), f, row); } });
+}
+const shortTx = (tx) => `${tx.slice(0, 10)}…${tx.slice(-6)}`;
+async function factCheck(body, f, row) {
+  const say = (html) => { body.innerHTML = html; };
+  const n = row[0];
+  try {
+    const tok = await fetch(`https://api.twetch.com/v1/tokens/${f.c}/${n}`).then((r) => { if (!r.ok) throw new Error(`Twetch answered ${r.status}`); return r.json(); });
+    const [tx, vout] = String(tok.state?.currentOutpoint || '').split(':');
+    if (!tx) return say(`<p>Twetch names no transaction for this Twonk${tok.pending ? ', and marks it pending' : ''}.</p>`);
+    const res = await fetch(`https://api.whatsonchain.com/v1/bsv/main/tx/${tx}/hex`);
+    if (res.status === 404) {
+      return say(`<p>Twetch ${tok.pending ? 'marks this Twonk pending and ' : ''}names transaction <code>${shortTx(tx)}</code>, but the blockchain has no such transaction (WhatsOnChain: not found). So there is no on-chain record.</p>`);
+    }
+    if (!res.ok) throw new Error(`WhatsOnChain answered ${res.status}`);
+    const rec = chainRecord(await res.text(), +vout || 0);
+    const link = `<a href="https://whatsonchain.com/tx/${tx}" target="_blank" rel="noopener">${shortTx(tx)}</a>`;
+    if (!rec) return say(`<p>Transaction ${link} (output ${+vout || 0}) holds no record.</p>`);
+    const j = rec.json;
+    const attrs = Array.isArray(j.attributes) ? j.attributes : [];
+    const ours = (type) => { const t = f.types.findIndex((x) => x.trim() === String(type).trim()); const v = t < 0 ? -1 : row[T0 + t]; return v >= 0 ? String(f.traits[t][v][0]) : null; };
+    const diffs = attrs.filter((a) => (ours(a.trait_type) ?? '').trim() !== String(a.value).trim());
+    const lit = (v) => `<code>${esc(JSON.stringify(v)).replace(/ +(?=&quot;$)/, (s) => ' '.repeat(s.length))}</code>`; // quoted, so stray spaces show; they hold the closing quote on their line
+    const rows = attrs.map((a) => `<tr${diffs.includes(a) ? ' class="diff"' : ''}><td>${esc(a.trait_type)}</td><td>${lit(a.value)}</td><td>${a.count != null ? fmt(a.count) : '–'}</td></tr>`).join('');
+    const art = (f.art?.[n] || []).map(([type, record, shown]) => `<p class="flag hot">The art shows ${esc(shown)}; the chain says ${esc(type)} ${lit(record)}.</p>`).join('');
+    say(`
+      <p>Read just now from transaction ${link}, output ${+vout || 0}, via WhatsOnChain. This is the record as written on the blockchain.</p>
+      <p class="chain-stored">Stored on chain: rank ${j.rank != null ? '#' + fmt(+j.rank) : 'none'}${j.rarity ? `, ${esc(j.rarity)}` : ''}${j.score != null ? `, score ${esc(j.score)}` : ''}.</p>
+      ${attrs.length ? `<table class="chain-t"><thead><tr><th>Trait</th><th>Value on chain</th><th>Count stored</th></tr></thead><tbody>${rows}</tbody></table>` : '<p>The record lists no traits.</p>'}
+      <p class="fine">${diffs.length ? `${diffs.length} trait${diffs.length === 1 ? '' : 's'} on chain differ${diffs.length === 1 ? 's' : ''} from the record True Twonk ranks by (marked).` : 'Every trait on chain matches the record True Twonk ranks by.'} The counts are as the record stores them; True Twonk recounts its own.</p>
+      ${art}
+      <details class="raw"><summary>The record, exactly as written</summary><pre>${esc(rec.text)}</pre></details>`);
+  } catch (e) {
+    say(`<p>Could not read the blockchain just now (${esc(e.message)}). Try again in a moment.</p>`);
+    body.closest('details').dataset.done = '';
+  }
+}
 
 function showMisprints() {
   if (!misprints) return;
@@ -103,7 +153,7 @@ function showMisprints() {
       <span class="mp-t"><a href="/t/${esc(m.slug)}/${m.n}"><b>${esc(m.name)}</b></a>${m.name.includes('#') ? '' : ` <small>${esc(m.fleet)} #${m.n}</small>`}</span>
       <span class="mp-d">${m.kind === 'wrong'
         ? m.detail.map(([type, record, art]) => `${esc(type)}: the art shows ${esc(art)}, the record says ${esc(record)}.`).join(' ')
-        : `The record lists no traits. The art shows a full Twonk. Twetch shows #${fmt(m.twetch)}.`}</span>
+        : `Not on chain. Twetch shows #${fmt(m.twetch)}.`}</span>
     </li>`;
   const group = (kind, title) => {
     const g = list.filter((m) => m.kind === kind);
@@ -115,8 +165,11 @@ function showMisprints() {
       <h2>Misprints</h2>
       <p>A misprint is a Twonk whose on-chain record does not match its art. Like misprinted banknotes, they can be collected as a tier of their own. They are shown here, not ranked: True Twonk ranks every Twonk by its record.</p>
       ${group('wrong', 'Wrong trait')}
-      ${group('blank', 'Blank record, full art')}
       <p class="fine">Found by comparing each Twonk's art with its record, then checked by eye. Checked: ${misprints.checked.length} of ${misprints.of} collections, the pixel-art ones (${esc(misprints.checked.join(', '))}). The other ${misprints.of - misprints.checked.length} are not pixel art, which this check cannot read, so they may hold misprints not listed here.</p>
+      ${(misprints.offChain || []).length ? `
+      <h3>Not on the blockchain (${misprints.offChain.length})</h3>
+      <p class="fine">Not misprints: there is no on-chain record to misprint. Twetch lists these Twonks and shows a rank for them, but marks them pending with no owner, and no transaction exists for them (checked ${day(misprints.chainChecked)}).</p>
+      <ul class="mps">${misprints.offChain.map((m) => item({ ...m, kind: 'off' })).join('')}</ul>` : ''}
     </div>`;
   document.title = 'Misprints · True Twonk';
   show();
@@ -206,24 +259,29 @@ function render(f, number) {
     return show();
   }
   if (!row[2]) {
-    // no traits on its record: nothing to recount, but Twetch may still print a rank, and the art may be a full Twonk
-    const m = misprintOf(f, number);
-    if (!row[3]) return fail(`${name} has no traits on its on-chain record${row[1] ? `, though Twetch shows #${fmt(row[1])}` : ''}, so there is nothing to recount.`);
+    // no traits in Twetch's record: nothing to recount. Some of these are not on the blockchain at all
+    // (tools/chain-status.json): Twetch lists them, marks them pending, and no transaction exists.
+    const off = (f.offChain || []).includes(number);
+    const twetch = row[1] ? `Twetch shows #${fmt(row[1])}` : 'Twetch shows no rank';
+    if (!row[3]) return fail(`${name} has no traits in Twetch's record${row[1] ? `, though ${twetch}` : ''}, so there is nothing to recount.`);
     document.title = `${name} · True Twonk`;
     out.innerHTML = `
       <div class="stage blank">
         <div class="spot">${img(f, row, 'hero')}</div>
         <div class="verdict">
           <h2>${esc(name)}</h2>
-          <div class="ranks${m ? ' three' : ''}">
+          <div class="ranks">
             <div class="r twetch"><span>Twetch</span><b>${row[1] ? '#' + fmt(row[1]) : '–'}</b><small>${row[1] ? 'as Twetch prints it' : 'no rank'}</small></div>
-            <div class="r"><span>True rank</span><b>None</b><small>no traits on record</small></div>
-            ${m ? misprintBox(m) : ''}
+            <div class="r"><span>True rank</span><b>None</b><small>${off ? 'not on chain' : 'no traits on record'}</small></div>
           </div>
-          <p class="call">Its on-chain record lists no traits, so there is nothing to recount.${m ? ' Its art shows a full Twonk.' : ''}</p>
-          <p class="acts"><a class="out" href="https://twetch.com/market/${f.c}?token=${number}" target="_blank" rel="noopener">View on Twetch</a>${m ? '<a class="out" href="/#misprints">All misprints</a>' : ''}</p>
+          <p class="call">${off
+            ? `Not on the blockchain. Twetch lists it and ${twetch.replace('Twetch shows', 'shows')}, but marks it pending with no owner, and no transaction exists for it (checked ${day(f.chainChecked)}). So there is no on-chain record to rank.`
+            : 'Its record lists no traits, so there is nothing to recount.'}</p>
+          <p class="acts"><a class="out" href="https://twetch.com/market/${f.c}?token=${number}" target="_blank" rel="noopener">View on Twetch</a>${off ? '<a class="out" href="/#misprints">Not-on-chain list</a>' : ''}</p>
+          ${chainBox()}
         </div>
       </div>`;
+    wireChain(out, f, row);
     sfx.same();
     return show();
   }
@@ -264,6 +322,7 @@ function render(f, number) {
     <div class="traits-wrap">
       <h3>Its traits, rarest first</h3>
       <ul class="traits">${traitRows(f, row)}</ul>
+      ${chainBox()}
       <details class="how">
         <summary>How the true rank is counted</summary>
         <p>Same formula Twetch uses for ${esc(f.name)} (${f.method === 'inv' ? 'rarity score: one over each trait\'s share, added up' : 'information content: how surprising each trait is, added up'}), with three changes:</p>
@@ -275,6 +334,7 @@ function render(f, number) {
         <p>A Twonk's place among ${fmt(f.n)} living ${esc(f.name)}, rarest first.</p>
       </details>
     </div>`;
+  wireChain(out, f, row);
   (gained > 0 || gained == null) ? sfx.win() : gained < 0 ? sfx.down() : sfx.same();
   show();
 }
