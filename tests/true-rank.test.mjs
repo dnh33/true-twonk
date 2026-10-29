@@ -128,3 +128,12 @@ test('one inflated trait (Lizer Corp lists 127 on every "None") does not make a 
   };
   assert.equal(trueFleet(r).pooled, false);
 });
+
+test('a trait one or two letters off the Twonk\'s own name is a misspelling (Rare Sirloins #736)', async () => {
+  const { misspelled } = await import('../tools/true-rank.mjs');
+  assert.equal(misspelled('Snow Rabbit', 'Sow Rabbit'), true);
+  assert.equal(misspelled('Snow Rabbit', 'Snow Rabbit'), false, 'the same name is no misspelling');
+  assert.equal(misspelled('Snow Rabbit', 'Snow Rabbit '), false, 'a stray space is no misspelling');
+  assert.equal(misspelled('Frog the Zombie', 'Zombie'), false);
+  assert.equal(misspelled('Ham', 'Jam'), false, 'too short to tell a typo from another word');
+});

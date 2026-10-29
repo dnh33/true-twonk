@@ -4,7 +4,7 @@
 import { readFile, writeFile, mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { trueFleet } from './true-rank.mjs';
+import { trueFleet, misspelled } from './true-rank.mjs';
 import { SHARE_BUCKET } from '../src/card.mjs';
 
 const TETRO = process.argv[2] || process.env.TETRO || fileURLToPath(new URL('../../tetro', import.meta.url));
@@ -57,6 +57,15 @@ for (const raw of raws.sort((a, b) => a.name.localeCompare(b.name))) {
     else console.warn(`art flag dropped: ${raw.name} #${n}, its record no longer says what tools/art-flags.json claims; re-run tools/audit_art.py`);
   }
   liveFlags[raw.c] = doc.art;
+  // a record that misspells its own name in a trait (Rare Sirloins #736 "Snow Rabbit", Meat "Sow Rabbit"): shown, never
+  // ranked. Found from the names and traits themselves, so it stays current: { number: [[type, value on record, name]] }
+  doc.spelling = {};
+  for (const [n, name] of Object.entries(doc.names)) {
+    const row = doc.tok.find((r) => r[0] === +n);
+    const list = row ? doc.types.map((type, t) => [type, row[8 + t] >= 0 ? doc.traits[t][row[8 + t]][0] : null, name])
+      .filter(([, value]) => value != null && misspelled(name, value)) : [];
+    if (list.length) doc.spelling[n] = list;
+  }
   doc.offChain = chainStatus.notOnChain[raw.c] || [];
   doc.chainChecked = chainStatus.checked;
   if (doc.n < 2) continue;
@@ -96,8 +105,14 @@ for (const [c, toks] of Object.entries(liveFlags)) {
       twetch: row[1], kind: blank ? 'blank' : 'wrong', detail: blank ? [] : list,
     });
   }
+  // "spelling" = the record misspells its own name in a trait (found over every collection, not only the pixel-art ones)
+  for (const [n, list] of Object.entries(doc.spelling || {})) {
+    const row = doc.tok.find((r) => r[0] === +n);
+    misprints.push({ c, slug: fleet.slug, fleet: fleet.name, n: +n, name: doc.names[n], image: row[3], twetch: row[1], kind: 'spelling', detail: list });
+  }
 }
-misprints.sort((a, b) => (a.kind === b.kind ? a.fleet.localeCompare(b.fleet) || a.n - b.n : a.kind === 'wrong' ? -1 : 1));
+const KINDS = ['wrong', 'spelling', 'blank'];
+misprints.sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind) || a.fleet.localeCompare(b.fleet) || a.n - b.n);
 // Twonks Twetch lists that are not on the blockchain (tools/chain-status.json, from tools/chain-check.mjs): not
 // misprints, since there is no on-chain record to misprint; listed apart, with the date they were checked
 const offChain = [];

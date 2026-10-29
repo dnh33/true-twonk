@@ -92,7 +92,7 @@ const asOf = () => { const d = new Date(index.at); return `as of ${d.getDate()} 
 const day = (iso) => { const d = new Date(`${iso}T00:00:00Z`); return `${d.getUTCDate()} ${d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })}`; };
 // a Twonk whose on-chain record does not match its art (checked by eye, tools/art-flags.json). Misprints are a tier of
 // their own, shown beside the rank and never inside it: the rank follows the record.
-const KIND = { wrong: 'wrong-trait', blank: 'blank-record' };
+const KIND = { wrong: 'wrong-trait', spelling: 'misspelled-trait', blank: 'blank-record' };
 const misprintOf = (f, n) => misprints?.misprints.find((m) => m.c === f.c && m.n === n) || null;
 const kindCount = (m) => misprints.misprints.filter((x) => x.kind === m.kind).length;
 const misprintBox = (m) => `
@@ -159,7 +159,9 @@ function showMisprints() {
       <span class="mp-t"><a href="/t/${esc(m.slug)}/${m.n}"><b>${esc(m.name)}</b></a>${m.name.includes('#') ? '' : ` <small>${esc(m.fleet)} #${m.n}</small>`}</span>
       <span class="mp-d">${m.kind === 'wrong'
         ? m.detail.map(([type, record, art]) => `${esc(type)}: the art shows ${esc(art)}, the record says ${esc(record)}.`).join(' ')
-        : `Not on chain. ${m.twetch ? `Twetch shows #${fmt(m.twetch)}.` : 'Twetch shows no rank.'}`}</span>
+        : m.kind === 'spelling'
+          ? m.detail.map(([type, record, name]) => `${esc(type)}: the record spells it “${esc(record)}”; its own name is “${esc(name)}”.`).join(' ')
+          : `Not on chain. ${m.twetch ? `Twetch shows #${fmt(m.twetch)}.` : 'Twetch shows no rank.'}`}</span>
     </li>`;
   const group = (kind, title) => {
     const g = list.filter((m) => m.kind === kind);
@@ -169,9 +171,11 @@ function showMisprints() {
   out.innerHTML = `
     <div class="misprints">
       <h2>Misprints</h2>
-      <p>A misprint is a Twonk whose on-chain record does not match its art. Like misprinted banknotes, they can be collected as a tier of their own. They are shown here, not ranked: True Twonk ranks every Twonk by its record.</p>
+      <p>A misprint is a Twonk whose on-chain record does not match its art, or misspells its own name. Like misprinted banknotes, they can be collected as a tier of their own. They are shown here, not ranked: True Twonk ranks every Twonk by its record.</p>
       ${group('wrong', 'Wrong trait')}
       <p class="fine">Found by comparing each Twonk's art with its record, then checked by eye. Checked: ${misprints.checked.length} of ${misprints.of} collections, the pixel-art ones (${esc(misprints.checked.join(', '))}). The other ${misprints.of - misprints.checked.length} are not pixel art, which this check cannot read, so they may hold misprints not listed here.</p>
+      ${group('spelling', 'Misspelled trait')}
+      ${list.some((m) => m.kind === 'spelling') ? `<p class="fine">Found by comparing every named Twonk's traits with its own name, in all ${misprints.of} collections: a trait one or two letters off the name.</p>` : ''}
       ${(misprints.offChain || []).length ? `
       <h3>Not on the blockchain (${misprints.offChain.length})</h3>
       <p class="fine">Not misprints: there is no on-chain record to misprint. Twetch lists these Twonks, and shows a rank for some of them, but marks them pending with no owner, and no transaction exists for them (checked ${day(misprints.chainChecked)}).</p>
@@ -215,6 +219,8 @@ function traitRows(f, row) {
     const typo = (f.merged || []).find(([type, names]) => type === f.types[t] && names[0].trim() === String(raw).trim());
     if (typo) notes.push(`<span class="flag">Written two ways on record (one with a stray space), counted as one trait</span>`);
     const seen = (f.art?.[row[0]] || []).find(([type]) => type === f.types[t]);
+    const typo2 = (f.spelling?.[row[0]] || []).find(([type]) => type === f.types[t]);
+    if (typo2) notes.push(`<span class="flag hot">Spelled “${esc(typo2[1])}” on chain. Its own name is “${esc(typo2[2])}”. Ranked by the record.</span>`);
     if (seen) notes.push(`<span class="flag hot">The art shows ${esc(seen[2])}. The on-chain record says ${esc(seen[1])}. Ranked by the record.</span>`);
     rows.push({ c, html: `
       <li class="lozenge trait">

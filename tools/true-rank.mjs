@@ -32,6 +32,20 @@ export function mergeTypos(raw) {
   return { raw: { ...raw, traits, tok }, merged };
 }
 
+/** A trait value one or two letters off the Twonk's own name, as on Rare Sirloins #736 ("Snow Rabbit", Meat "Sow
+ *  Rabbit"): the record misspells its own trait. Stray spaces and case do not count; short words are left alone. */
+export function misspelled(name, value) {
+  const a = String(name).trim().toLowerCase(), b = String(value).trim().toLowerCase();
+  if (a === b || Math.min(a.length, b.length) < 5) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return prev[b.length] <= 2;
+}
+
 /** method: 'info' | 'inv'. burned: Map<number, string> from token number to the fleet it became ('' when none).
  *  listingOnly: trait types no on-chain record of the fleet holds (Egg's Color is only in Twetch's listing; found by
  *  tools/chain-check.mjs): shown, never scored, since the on-chain record ranks. With nothing left to score, no ranks. */
