@@ -168,7 +168,7 @@ function showMisprints() {
       <a href="/t/${esc(m.slug)}/${m.n}">${m.image ? `<img src="${MEDIA}${m.image}" alt="${esc(m.name)}" loading="lazy" decoding="async">` : ''}</a>
       <span class="mp-t"><a href="/t/${esc(m.slug)}/${m.n}"><b>${esc(m.name)}</b></a>${m.name.includes('#') ? '' : ` <small>${esc(m.fleet)} #${m.n}</small>`}</span>
       <span class="mp-d">${m.kind === 'wrong'
-        ? m.detail.map(([type, record, art]) => `${esc(type)}: the art shows ${esc(art)}, the record says ${esc(record)}.`).join(' ')
+        ? (m.custom ? 'A Signature 1-of-1 (custom art). ' : '') + m.detail.map(([type, record, art]) => `${esc(type)}: the art shows ${esc(art)}, the record says ${esc(record)}.`).join(' ')
           + (m.evidence ? ` <a class="ev" href="${esc(m.evidence)}" target="_blank" rel="noopener">See the comparison</a>` : '')
         : m.kind === 'spelling'
           ? m.detail.map(([type, record, name]) => `${esc(type)}: the record spells it “${esc(record)}”; its own name is “${esc(name)}”.`).join(' ')
@@ -233,7 +233,8 @@ function traitRows(f, row) {
     const typo2 = (f.spelling?.[row[0]] || []).find(([type]) => type === f.types[t]);
     if (typo2) notes.push(`<span class="flag hot">Spelled “${esc(typo2[1])}” on chain. Its own name is “${esc(typo2[2])}”. Ranked by the record.</span>`);
     const ev = seen && misprintOf(f, row[0])?.evidence;
-    if (seen) notes.push(`<span class="flag hot">The art shows ${esc(seen[2])}. The on-chain record says ${esc(seen[1])}. Ranked by the record.${ev ? ` <a href="${esc(ev)}" target="_blank" rel="noopener">See the comparison</a>` : ''}</span>`);
+    const custom = f.types.some((type, k) => /signature/i.test(type) && row[8 + k] >= 0);
+    if (seen) notes.push(`<span class="flag hot">${custom ? 'A Signature 1-of-1 (custom art). ' : ''}The art shows ${esc(seen[2])}. The on-chain record says ${esc(seen[1])}. Ranked by the record.${ev ? ` <a href="${esc(ev)}" target="_blank" rel="noopener">See the comparison</a>` : ''}</span>`);
     rows.push({ c, html: `
       <li class="lozenge trait">
         <span class="tt">${esc(f.types[t])}</span>

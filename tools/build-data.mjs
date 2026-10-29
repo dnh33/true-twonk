@@ -123,6 +123,8 @@ for (const [c, toks] of Object.entries(liveFlags)) {
     misprints.push({
       c, slug: fleet.slug, fleet: fleet.name, n: +n, name: doc.names[n] || `${fleet.name} #${n}`, image: row[3],
       twetch: row[1], kind: blank ? 'blank' : 'wrong', detail: blank ? [] : list,
+      // a Signature 1-of-1 is drawn by hand, not from the standard parts: said with the misprint (owner, 29 Oct)
+      custom: doc.types.some((type, t) => /signature/i.test(type) && row[8 + t] >= 0),
       // the side-by-side picture anyone can check (tools/evidence.py), when it has been made
       evidence: existsSync(new URL(`../public/evidence/${fleet.slug}-${n}.png`, import.meta.url)) ? `/evidence/${fleet.slug}-${n}.png` : null,
     });
