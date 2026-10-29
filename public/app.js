@@ -180,8 +180,16 @@ function spellDiff(record, name) {
 // a square zoomed onto one spot of a Twonk's art: background-position puts the point (x, y) in the middle
 const zoomTile = (image, [x, y], z, pixel, caption) => {
   const at = (f) => `${Math.min(100, Math.max(0, ((f * z - 0.5) / (z - 1)) * 100)).toFixed(1)}%`;
-  return `<figure><div class="zoom${pixel ? ' px' : ''}" role="img" aria-label="${esc(caption)}, enlarged" style="background-image:url('${MEDIA}${image}');--z:${z * 100}%;--px:${at(x)};--py:${at(y)}"></div><figcaption>${caption}</figcaption></figure>`;
+  return `<figure><div class="zoom${pixel ? ' px' : ''}" role="img" aria-label="${esc(caption)}, enlarged" data-bg="${MEDIA}${image}" style="--z:${z * 100}%;--px:${at(x)};--py:${at(y)}"></div><figcaption>${caption}</figcaption></figure>`;
 };
+// a close-up's picture loads only when it scrolls near: Twetch serves every picture full size (about 1 MB for painted
+// collections), and a CSS background never waits on its own
+const near = 'IntersectionObserver' in window ? new IntersectionObserver((seen) => seen.forEach((e) => {
+  if (!e.isIntersecting) return;
+  e.target.style.backgroundImage = `url('${e.target.dataset.bg}')`;
+  near.unobserve(e.target);
+}), { rootMargin: '400px 0px' }) : null;
+const lazyZooms = (root) => root.querySelectorAll('.zoom[data-bg]').forEach((z) => (near ? near.observe(z) : (z.style.backgroundImage = `url('${z.dataset.bg}')`)));
 const ev0 = (f, row) => misprints?.misprints.find((m) => m.c === f.c && m.n === row[0] && m.kind === 'clash')?.evidence;
 function showMisprints() {
   if (!misprints) return;
@@ -249,6 +257,7 @@ function showMisprints() {
         <ul class="offs">${offChain.map(off).join('')}</ul>
       </section>` : ''}
     </div>`;
+  lazyZooms(out);
   out.querySelectorAll('.mp-jump button').forEach((b) => b.addEventListener('click', () => document.getElementById(b.dataset.to)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })));
   document.title = 'Misprints · True Twonk';
   show();
@@ -282,7 +291,9 @@ async function showCombos(slug) {
   // front of the body, while a subtle clash sits in a small spot
   data.pairs.sort((p, q) => p[4] - q[4] || q[8] - p[8]);
   const pairsOf = [...new Set(data.pairs.map((p) => `${p[0]} + ${p[2]}`))].sort();
-  let held = 0, kind = '', shown = PAGE;
+  // painted collections are heavy: half the cards per page
+  const step = data.pixel ? PAGE : PAGE / 2;
+  let held = 0, kind = '', shown = step;
   const card = ([ta, va, tb, vb, n, who, x, y, z]) => {
     const first = img.get(who[0]);
     return `<li class="combo">
@@ -294,10 +305,11 @@ async function showCombos(slug) {
   const paint = () => {
     const sel = data.pairs.filter((p) => (!held || p[4] === held) && (!kind || `${p[0]} + ${p[2]}` === kind));
     out.querySelector('.combo-grid').innerHTML = sel.slice(0, shown).map(card).join('');
+    lazyZooms(out.querySelector('.combo-grid'));
     out.querySelector('.combo-count').textContent = `${fmt(sel.length)} pair${sel.length === 1 ? '' : 's'}`;
     const more = out.querySelector('.combo-more');
     more.hidden = sel.length <= shown;
-    more.textContent = `Show ${fmt(Math.min(PAGE, sel.length - shown))} more`;
+    more.textContent = `Show ${fmt(Math.min(step, sel.length - shown))} more`;
   };
   out.innerHTML = `
     <div class="misprints combos">
@@ -314,12 +326,12 @@ async function showCombos(slug) {
       <p class="fine"><a href="#combos">All collections</a> · checked ${day(data.checked)}</p>
     </div>`;
   out.querySelectorAll('[data-held]').forEach((b) => b.addEventListener('click', () => {
-    held = +b.dataset.held; shown = PAGE;
+    held = +b.dataset.held; shown = step;
     out.querySelectorAll('[data-held]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     paint();
   }));
-  out.querySelector('.combo-kind select').addEventListener('change', (e) => { kind = e.target.value; shown = PAGE; paint(); });
-  out.querySelector('.combo-more').addEventListener('click', () => { shown += PAGE; paint(); });
+  out.querySelector('.combo-kind select').addEventListener('change', (e) => { kind = e.target.value; shown = step; paint(); });
+  out.querySelector('.combo-more').addEventListener('click', () => { shown += step; paint(); });
   paint();
   document.title = `Rare combinations in ${data.name} · True Twonk`;
   show();
