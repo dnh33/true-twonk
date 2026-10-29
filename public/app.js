@@ -227,7 +227,7 @@ function showMisprints() {
     <div class="misprints">
       <h2>Misprints</h2>
       <p>Twetch collectors use “misprint” for a Twonk with a flaw in its record or its art. Neither Twetch nor the creators have published a definition. This page lists two kinds. They are shown here, not ranked: True Twonk ranks every Twonk by its record.</p>
-      <nav class="mp-jump" aria-label="Sections">${jumps.map(([n, label, id]) => `<button type="button" data-to="${id}">${label}<span>${n}</span></button>`).join('')}<a class="to-combos" href="#combos">Rare combinations</a></nav>
+      <nav class="mp-jump" aria-label="Sections">${jumps.map(([n, label, id]) => `<button type="button" data-to="${id}">${label}<span>${n}</span></button>`).join('')}<a class="to-combos" href="#combos">Rare combinations</a><a class="to-combos" href="#rarest">Rarest combinations</a></nav>
       ${record.length ? `<section id="mp-record">
         <h3>Record misprints <span>${record.length}</span></h3>
         <p class="lede">The on-chain record does not match the art, or spells a trait differently from the Twonk's own name.</p>
@@ -266,9 +266,9 @@ async function showCombos(slug) {
     out.innerHTML = `
       <div class="misprints combos">
         <h2>Rare combinations</h2>
-        <p>Pairs of items drawn over each other on only one, two or three Twonks, found by comparing where each item is drawn.</p>
+        <p>Pairs of items drawn over each other on only one, two or three Twonks, found by comparing where each item is drawn. Items on fewer than five Twonks cannot be mapped, so their pairs are in the <a href="#rarest">rarest combinations</a> instead.</p>
         ${ask}
-        <ul class="combo-index">${list.map((c) => `<li><a href="#combos/${esc(c.slug)}"><b>${esc(c.name)}</b><span>${fmt(c.count)} pairs</span><small>${fmt(c.one)} on a single Twonk</small></a></li>`).join('')}</ul>
+        <ul class="combo-index">${list.filter((c) => c.count).map((c) => `<li><a href="#combos/${esc(c.slug)}"><b>${esc(c.name)}</b><span>${fmt(c.count)} pairs</span><small>${fmt(c.one)} on a single Twonk</small></a></li>`).join('')}</ul>
         <p class="fine">Not every collection is here: a collection needs items drawn in layers to have combinations. Checked ${esc(list[0]?.checked ? day(list[0].checked) : '')}.</p>
       </div>`;
     document.title = 'Rare combinations · True Twonk';
@@ -302,7 +302,7 @@ async function showCombos(slug) {
   out.innerHTML = `
     <div class="misprints combos">
       <h2>Rare combinations in ${esc(data.name)}</h2>
-      <p>Pairs of items drawn over each other on only one, two or three of its ${fmt(doc.n)} Twonks, rarest first. Each picture is zoomed in on where the two meet.</p>
+      <p>Pairs of items drawn over each other on only one, two or three of its ${fmt(doc.n)} Twonks, rarest first. Each picture is zoomed in on where the two meet. Pairs with items on fewer than five Twonks are not here: see the <a href="#rarest/${esc(slug)}">rarest combinations</a>.</p>
       ${ask}
       <div class="combo-tools">
         <nav class="mp-jump" aria-label="How many hold it">${[[0, 'All'], [1, 'On 1'], [2, 'On 2'], [3, 'On 3']].map(([v, l]) => `<button type="button" data-held="${v}" aria-pressed="${v === 0}">${l}</button>`).join('')}</nav>
@@ -322,6 +322,46 @@ async function showCombos(slug) {
   out.querySelector('.combo-more').addEventListener('click', () => { shown += PAGE; paint(); });
   paint();
   document.title = `Rare combinations in ${data.name} · True Twonk`;
+  show();
+}
+// Rarest combinations: items the combination scan could not map (tools/combo_scan.py "unmapped"), mostly because so
+// few Twonks hold them that their shape cannot be learned. Their pairs are missing from the rare combinations, so every
+// Twonk holding one is shown whole, for people to look at by eye.
+async function showRarest(slug) {
+  const out = $('#result');
+  const list = await fetch('/data/combos/index.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (!list) return fail('Could not load the rarest combinations. Reload to try again.');
+  const withRarest = list.filter((c) => c.unmapped);
+  const ask = `<p class="lede">Look for parts that clash, like the antenna drawn through the eyepiece strap on <a href="/t/fox-syndicate/2996">Fox Syndicate #2996</a>. <a href="${THREAD}" target="_blank" rel="noopener">Post one in the misprint thread</a> with its number and why. Each one is checked by eye, confirmed by a second reviewer and approved before it is listed as a misprint.</p>`;
+  if (!slug || !withRarest.find((c) => c.slug === slug)) {
+    out.innerHTML = `
+      <div class="misprints combos">
+        <h2>Rarest combinations</h2>
+        <p>Items whose shape the scan cannot learn, mostly because so few Twonks hold them, so their pairs are not in the <a href="#combos">rare combinations</a>. Every Twonk holding one is shown whole instead.</p>
+        ${ask}
+        <ul class="combo-index">${withRarest.map((c) => `<li><a href="#rarest/${esc(c.slug)}"><b>${esc(c.name)}</b><span>${fmt(c.unmapped)} item${c.unmapped === 1 ? '' : 's'}</span><small>on ${fmt(c.unmappedTwonks)} Twonk${c.unmappedTwonks === 1 ? '' : 's'}</small></a></li>`).join('')}</ul>
+      </div>`;
+    document.title = 'Rarest combinations · True Twonk';
+    return show();
+  }
+  const data = await fetch(`/data/combos/${slug}.json`).then((r) => r.json());
+  const fleet = index.fleets.find((f) => f.slug === slug);
+  const doc = await loadFleet(fleet.c);
+  const img = new Map(doc.tok.map((r) => [r[0], r[3]]));
+  const group = ([type, value, held, who]) => `
+    <li class="rare-item">
+      <h4><span>${esc(type)}</span> ${esc(value)} <small>on ${fmt(held)} Twonk${held === 1 ? '' : 's'}</small></h4>
+      <ul>${who.map((n) => `<li><a href="/t/${esc(slug)}/${n}">${img.get(n) ? `<img src="${MEDIA}${img.get(n)}" alt="" loading="lazy" decoding="async"${data.pixel ? ' class="px"' : ''}>` : ''}<span>#${n}</span></a></li>`).join('')}</ul>
+    </li>`;
+  out.innerHTML = `
+    <div class="misprints combos">
+      <h2>Rarest combinations in ${esc(data.name)}</h2>
+      <p>${fmt(data.unmapped.length)} items whose shape the scan cannot learn, mostly because so few of its ${fmt(doc.n)} Twonks hold them, so their pairs are not in the <a href="#combos/${esc(slug)}">rare combinations</a>. Every Twonk holding one is shown whole, rarest item first.</p>
+      ${ask}
+      <ul class="rare-items">${data.unmapped.map(group).join('')}</ul>
+      <p class="fine"><a href="#rarest">All collections</a> · checked ${day(data.checked)}</p>
+    </div>`;
+  document.title = `Rarest combinations in ${data.name} · True Twonk`;
   show();
 }
 // the deliberate glitch one-of-ones (Frog Cartel #1240, Naka Motor Club #2222, Rare Sirloins #1213): "Missing" traits by design
@@ -585,10 +625,12 @@ $('#ask').addEventListener('submit', (e) => { e.preventDefault(); check(); });
 loadIndex().then(() => {
   if (location.hash === '#misprints') return showMisprints();
   if (location.hash.startsWith('#combos')) return showCombos(location.hash.split('/')[1]);
+  if (location.hash.startsWith('#rarest')) return showRarest(location.hash.split('/')[1]);
   const q = linked();
   if (q) { $('#q').value = q; check(); }
 }).catch(() => fail('Could not load the collections. Reload to try again.'));
 addEventListener('hashchange', () => {
   if (location.hash === '#misprints') showMisprints();
   else if (location.hash.startsWith('#combos')) showCombos(location.hash.split('/')[1]);
+  else if (location.hash.startsWith('#rarest')) showRarest(location.hash.split('/')[1]);
 });

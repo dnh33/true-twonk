@@ -188,7 +188,9 @@ if (existsSync(COMBOS)) {
   for (const f of await readdir(COMBOS)) {
     if (!f.endsWith('.json') || f === 'index.json') continue;
     const c = JSON.parse(await readFile(new URL(f, COMBOS), 'utf8'));
-    if (c.pairs.length) all.push({ slug: c.slug, name: c.name, count: c.pairs.length, one: c.pairs.filter((p) => p[4] === 1).length, checked: c.checked });
+    const un = c.unmapped || [];
+    if (c.pairs.length || un.length) all.push({ slug: c.slug, name: c.name, count: c.pairs.length, one: c.pairs.filter((p) => p[4] === 1).length,
+      unmapped: un.length, unmappedTwonks: new Set(un.flatMap((u) => u[3])).size, checked: c.checked });
   }
   all.sort((a, b) => a.name.localeCompare(b.name));
   await writeFile(new URL('index.json', COMBOS), JSON.stringify(all));

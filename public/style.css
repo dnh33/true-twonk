@@ -340,3 +340,16 @@ h1 .q { margin-left: -.06em; }
   .combo-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .combo { padding: 8px; }
 }
+/* rarest combinations: a card per rare item, its holders shown whole inside */
+.rare-items { list-style: none; margin: 18px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; align-items: start; }
+.rare-item { padding: 12px; border-radius: 14px; background: var(--raised); border: 1px solid var(--line); }
+.rare-item h4 { margin: 0 0 10px; font: 800 1rem/1.25 var(--display); overflow-wrap: anywhere; }
+.rare-item h4 span { display: block; font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.rare-item h4 small { display: block; margin-top: 2px; font: 500 .82rem var(--sans); color: var(--bsv-light); }
+.rare-item ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.rare-item a { display: grid; gap: 4px; text-decoration: none; border-radius: 10px; }
+.rare-item img { width: 100%; aspect-ratio: 1; border-radius: 8px; display: block; border: 1px solid var(--line); transition: border-color .2s var(--ease); }
+.rare-item a:hover img { border-color: var(--bsv); }
+.rare-item img.px { image-rendering: pixelated; }
+.rare-item a span { color: var(--bsv-light); font: 600 .82rem var(--sans); font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .rare-items { grid-template-columns: 1fr 1fr; gap: 8px; } .rare-item { padding: 10px; } .rare-item ul { grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); } }

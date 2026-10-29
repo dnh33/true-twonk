@@ -122,9 +122,13 @@ def main():
     pub = ROOT / 'public' / 'data' / 'combos'
     pub.mkdir(parents=True, exist_ok=True)
     rare = [[*p['a'], *p['b'], p['held'], p['twonks'][:3], *p['at'], p['zoom']] for p in pairs if p['held'] <= 3]
+    # items whose drawn area could not be learned (too few holders, or never drawn uncovered): their pairs cannot be
+    # found, so they are published apart for people to look at whole: [type, value, holders, Twonk numbers]
+    unmapped = sorted(([d['types'][t], name(t, v), int(holders[t][v]), [nums[x] for x in np.flatnonzero(V[:, t] == v)][:12]]
+                       for t in items for v in unlearned[t]), key=lambda u: (u[2], u[0], u[1]))
     (pub / f'{slug}.json').write_text(json.dumps({'name': d['name'], 'slug': slug, 'pixel': not SOFT['on'], 'checked': time.strftime('%Y-%m-%d'),
-                                                   'items': [d['types'][t] for t in items], 'pairs': rare}, separators=(',', ':')))
-    print(f"  {len(rare)} rare pairs published to public/data/combos/{slug}.json")
+                                                   'items': [d['types'][t] for t in items], 'pairs': rare, 'unmapped': unmapped}, separators=(',', ':')))
+    print(f"  {len(rare)} rare pairs and {len(unmapped)} unmapped items published to public/data/combos/{slug}.json")
     print(f"  {sum(1 for p in pairs if 'sheet' in p)} sheets (pairs held by at most {max_k}) in {folder}; done in {time.time() - t0:.0f}s")
 
 
