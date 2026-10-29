@@ -264,7 +264,12 @@ def pair_clear(G, V, Q, wrong):
 
 
 def worst_patch(wrong, shape):
-    lab, n = ndimage.label(wrong.reshape(shape))
+    w = wrong.reshape(shape)
+    if SOFT['on']:
+        # painted art: a block on an edge between two colours averages them, so a pixel's shift can tip its bin and
+        # edges leave thin lines of disagreement. A flaw is a solid area: keep only what fills at least 2 by 2 cells
+        w = ndimage.binary_opening(w, structure=np.ones((2, 2), bool))
+    lab, n = ndimage.label(w)
     if not n:
         return 0
     return int(np.bincount(lab.ravel())[1:].max())
@@ -442,9 +447,36 @@ def main():
         why = {'type': d['types'][e[1]], 'record': name(e[1], V[i, e[1]]), 'art fits': name(e[1], e[2]), 'cells fixed': e[0]} if e else None
         flags.append({'n': n, 'patch': int(real[i]), 'cells': int(wrong[i].sum()), 'explain': why})
         print(f"    #{n}: patch {real[i]}, {int(wrong[i].sum())} cells" + (f"; art fits {why['type']} \"{why['art fits']}\", record \"{why['record']}\" ({why['cells fixed']} cells fixed)" if why else '; no single trait change explains it'))
+    # repeated errors: the same wrong trait on k holders of one item at once, learned from the tainted records, as a
+    # batch error would sit in the collection (the planted fakes above are one at a time, so they cannot show this)
+    repeated = {}
+    if '--repeat' in args:
+        print("  repeated wrong traits (the same swap on k holders, 10 items each; caught at patch >= 1 / 2 / 3 / 4 / 5):")
+        for k in (2, 5, 10):
+            Vr, planted = V.copy(), []
+            tries = 0
+            while len({t for t, _, _ in planted}) < 10 and tries < 500 and len(planted) < 10:
+                tries += 1
+                t = int(rng.integers(T))
+                big = [v for v, c in holders[t].items() if v < K[t] and c >= k + MIN_SUPPORT + 1]
+                if len(big) < 2:
+                    continue
+                v, w = (int(x) for x in rng.choice(big, 2, replace=False))
+                who = rng.choice(np.flatnonzero((Vr[:, t] == v) & ~custom), k, replace=False)
+                Vr[who, t] = w
+                planted.append((t, v, [int(i) for i in who]))
+            qs = np.array([i for _, _, who in planted for i in who])
+            first_r = peel(G, Vr, K, order, (Vr, np.arange(N), G))
+            pr, jr = peel(G, Vr, K, order, (Vr[qs], qs, G[qs]), first_r)
+            wr = jr & differ(pr, G[qs])
+            if SOFT['on'] or '--pairs' in args:
+                wr = pair_clear(G, Vr, (Vr[qs], qs, G[qs]), wr)
+            pk = np.array([worst_patch(x, shape) for x in wr])
+            repeated[k] = [int((pk >= s).sum()) for s in range(1, 6)] + [len(qs)]
+            print(f"    on {k:>2} holders: " + ' / '.join(str(c) for c in repeated[k][:5]) + f"  of {len(qs)}  [{time.time() - t0:.0f}s]")
     out = {'name': d['name'], 'checked': N, 'custom': [nums[i] for i in range(N) if custom[i]], 'grid': list(shape), 'layers': [d['types'][t] for t in order],
            'judged_median': float(np.median(cov)), 'judged_min': float(cov.min()), 'same_art_swaps': int(same_art.sum()),
-           'planted': P, 'table': table, 'top': flags,
+           'planted': P, 'table': table, 'top': flags, 'repeated': repeated,
            'patches': {str(nums[i]): int(real[i]) for i in range(N) if real[i] > 0}}
     (ROOT / 'audit').mkdir(exist_ok=True)
     (ROOT / 'audit' / f'{slug}.diff.json').write_text(json.dumps(out, indent=1))
