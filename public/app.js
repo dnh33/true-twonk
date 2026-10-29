@@ -83,6 +83,12 @@ function parse(text) {
 const tierName = (i) => (i >= 0 ? TIERS[i] : null);
 // counts and doses keep changing (burns, vaccinations), so a rank is only true as of the day the data was read
 const asOf = () => { const d = new Date(index.at); return `as of ${d.getDate()} ${d.toLocaleString('en-US', { month: 'short' })}`; };
+// a Twonk whose on-chain record does not match its art (checked by eye, tools/art-flags.json): collectors prize
+// misprints like misprinted banknotes, so it is marked as one. Shown, never ranked.
+const misprint = (f, n) => {
+  if (!f.art?.[n]?.length) return '';
+  return `<p class="misprint"><span class="flag hot">Misprint</span> Its on-chain record does not match its art (see its traits below).</p>`;
+};
 // the deliberate glitch one-of-ones (Frog Cartel #1240, Naka Motor Club #2222, Rare Sirloins #1213): "Missing" traits by design
 const missingPiece = (f, row) => f.types.filter((_, t) => { const v = row[T0 + t]; return v >= 0 && /^missing/i.test(f.traits[t][v][0]) && f.traits[t][v][2] === 1; }).length >= 3;
 const img = (f, row, cls = '') => row && row[3]
@@ -167,7 +173,7 @@ function render(f, number) {
     sfx.down();
     return show();
   }
-  if (!row[2]) return fail(`${name} has no traits on Twetch, so it has no rank to check.${f.art?.[number] ? ' Its art shows a full Twonk, but its on-chain record lists no traits.' : ''}`);
+  if (!row[2]) return fail(`${name} has no traits on Twetch, so it has no rank to check.${f.art?.[number] ? ' Misprint: its art shows a full Twonk, but its on-chain record lists no traits.' : ''}`);
 
   const gained = row[4] ? row[4] - row[2] : null;
   const head = gained == null ? `<p class="call">Twetch shows no rank for ${esc(f.name)}, so this is the only one there is.</p>`
@@ -184,6 +190,7 @@ function render(f, number) {
       <div class="spot">${img(f, row, 'hero')}</div>
       <div class="verdict">
         <h2>${esc(name)}</h2>
+        ${misprint(f, number)}
         <div class="ranks">
           <div class="r twetch"><span>Twetch</span><b>${row[4] ? '#' + fmt(row[4]) : '–'}</b><small>${row[4] ? 'of ' + fmt(f.twetchOf) : 'no rank'}</small></div>
           <div class="r true"><span>True rank</span><b class="slam">#${fmt(row[2])}</b><small>of ${fmt(f.n)}, ${asOf()}</small></div>
