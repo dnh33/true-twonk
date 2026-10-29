@@ -43,15 +43,16 @@ def grid(path):
     """The pixel-art grid: sample the centre of each art pixel, as an int RGB code per cell."""
     im = np.asarray(Image.open(path).convert('RGB'))
     h, w, _ = im.shape
-    # cell size = the shortest run of equal colour along the middle row and column (art pixels are square)
-    def runs(line):
-        change = np.any(line[1:] != line[:-1], axis=1)
-        idx = np.flatnonzero(change)
-        return np.diff(np.concatenate(([-1], idx, [len(line) - 1])))
-    r = np.concatenate([runs(im[h // 2]), runs(im[:, w // 2])])
-    cell = int(np.min(r[r > 2])) if np.any(r > 2) else 1
-    c = im[cell // 2::cell, cell // 2::cell].astype(np.int32)
-    return (c[..., 0] << 16) | (c[..., 1] << 8) | c[..., 2], cell
+    # cell size = the largest square block that rebuilds the whole picture exactly; None when the art is not pixel art
+    # (illustrations and JPEGs never rebuild exactly, and exact colour matching means nothing on them)
+    for cell in range(min(h, w) // 8, 1, -1):
+        if h % cell or w % cell:
+            continue
+        c = im[::cell, ::cell]
+        if np.array_equal(c.repeat(cell, 0).repeat(cell, 1), im):
+            c = c.astype(np.int32)
+            return (c[..., 0] << 16) | (c[..., 1] << 8) | c[..., 2], cell
+    return None, None
 
 
 def audit(fleet, cache):
@@ -62,20 +63,25 @@ def audit(fleet, cache):
     with cf.ThreadPoolExecutor(6) as ex:
         ok = list(ex.map(lambda r: fetch(MEDIA + r[3], folder / f'{r[0]}.png'), rows))
     rows = [r for r, good in zip(rows, ok) if good]
-    grids, sizes = {}, {}
+    grids, sizes, not_pixel = {}, {}, 0
     for r in rows:
         try:
             g, cell = grid(folder / f'{r[0]}.png')
         except Exception:
             continue
+        if g is None:
+            not_pixel += 1
+            continue
         sizes[g.shape] = sizes.get(g.shape, 0) + 1
         grids[r[0]] = g
+    if not_pixel > len(rows) * 0.05 or not sizes:
+        return {'name': d['name'], 'skipped': f'not pixel art ({not_pixel} of {len(rows)} images do not rebuild from square cells)'}
     shape = max(sizes, key=sizes.get)
     nums = [n for n, g in grids.items() if g.shape == shape]
     G = np.stack([grids[n] for n in nums])  # tokens x H x W
     row_of = {r[0]: r for r in rows}
 
-    findings = {'name': d['name'], 'checked': len(nums), 'grid': list(shape), 'odd_size': len(grids) - len(nums),
+    findings = {'name': d['name'], 'checked': len(nums), 'grid': list(shape), 'odd_size': len(grids) - len(nums), 'not_pixel': not_pixel,
                 'footprints': {}, 'missing': [], 'unlisted': []}
     absent = lambda v: v.lower().startswith('no ') or v.lower() in ('none', 'missingmouthitem')
     # learn footprints
@@ -93,10 +99,9 @@ def audit(fleet, cache):
             H = G[have]
             # modal colour per cell among holders, and how many holders share it
             flat = H.reshape(k, -1)
-            mode = np.empty(flat.shape[1], dtype=np.int32); share = np.empty(flat.shape[1])
-            for i in range(flat.shape[1]):
-                u, c = np.unique(flat[:, i], return_counts=True)
-                j = int(np.argmax(c)); mode[i] = u[j]; share[i] = c[j] / k
+            # where at least 90% of holders agree, the middle value of each sorted column is that colour
+            mode = np.sort(flat, axis=0)[k // 2]
+            share = (flat == mode).mean(axis=0)
             others = G[~have].reshape(int((~have).sum()), -1)
             other_share = (others == mode).mean(axis=0) if len(others) else np.zeros_like(share)
             loose = (share >= AGREE) & (other_share <= RARE)
@@ -128,8 +133,12 @@ def audit(fleet, cache):
                 if loose[rec][i] >= MISS:
                     continue
                 shown = [(float(s[i]), int(mine[v][1].sum()), v) for v, s in strict.items() if v != rec and s[i] >= HIT]
-            else:
+            elif rec < 0 or absent(str(d['traits'][t][rec][0])):
                 shown = [(float(s[i]), int(mine[v][0].sum()), v) for v, s in loose.items() if s[i] >= HIT]
+            else:
+                # the record names an item whose look could not be learned (too few clear examples): the art matching
+                # another item proves nothing, since the recorded item may share those pixels. Not judged.
+                continue
             if not shown:
                 continue
             best, _, v = max(shown)  # best match, then the bigger footprint (Stitched Lips over a moustache it contains)
@@ -148,12 +157,16 @@ def main():
     out = ROOT / 'audit'
     out.mkdir(exist_ok=True)
     for f in index['fleets']:
-        if want != 'all' and f['slug'] != want:
+        if want != 'all' and f['slug'] not in want.split(','):
             continue
         res = audit(f, cache)
         (out / f"{f['slug']}.json").write_text(json.dumps(res, indent=1), encoding='utf-8')
+        if 'skipped' in res:
+            print(f"{res['name']:<20} skipped: {res['skipped']}", flush=True)
+            continue
         print(f"{res['name']:<20} checked {res['checked']:>5}  grid {res['grid']}  footprints {len(res['footprints']):>4}  "
-              f"missing {len(res['missing']):>4}  unlisted {len(res['unlisted']):>4}  odd size {res['odd_size']}")
+              f"missing {len(res['missing']):>4}  unlisted {len(res['unlisted']):>4}  odd size {res['odd_size']}  "
+              f"not pixel {res['not_pixel']}", flush=True)
 
 
 if __name__ == '__main__':

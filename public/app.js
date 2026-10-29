@@ -269,6 +269,7 @@ function show() {
 }
 /** checks: [query, label] pairs offered as one-click buttons under the message. */
 function fail(msg, checks = []) {
+  document.title = 'True Twonk';
   const e = $('#err');
   e.innerHTML = esc(msg) + (checks.length ? `<span class="tries">${checks.map(([q, label]) => `<button type="button" class="try" data-q="${esc(q)}">Check ${esc(label)}</button>`).join('')}</span>` : '');
   e.querySelectorAll('.try').forEach((b) => b.addEventListener('click', () => { $('#q').value = b.dataset.q; check(); }));
