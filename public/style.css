@@ -222,6 +222,7 @@ h1 .q { margin-left: -.06em; }
 .chain-t td.none { font-style: italic; }
 .chain-body .flag.hot { display: inline-block; }
 .chain-body .flag.hot code { color: inherit; font-weight: 700; }
+.flag.hot a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .chain .raw summary { color: var(--muted); font-weight: 400; }
 .chain .raw pre { margin: 8px 0 0; padding: 12px; max-height: 320px; overflow: auto; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
 .how { margin-top: 22px; color: var(--muted); max-width: 72ch; font-size: .93rem; }

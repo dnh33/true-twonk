@@ -116,6 +116,12 @@ async function factCheck(body, f, row) {
     const tok = await fetch(`https://api.twetch.com/v1/tokens/${f.c}/${n}`).then((r) => { if (!r.ok) throw new Error(`Twetch answered ${r.status}`); return r.json(); });
     const [tx, vout] = String(tok.state?.currentOutpoint || '').split(':');
     if (!tx) return say(`<p>Twetch names no transaction for this Twonk${tok.pending ? ', and marks it pending' : ''}.</p>`);
+    // is that output still unspent? Asked of the chain, not Twetch: a spent one means the Twonk has moved on since
+    // (Egg #1193: spent in 2023, Twetch still points at it). The bulk form answers 200 for an unspent output too, so
+    // the console stays clean: spentIn when spent, '' when unspent, null when unknown.
+    const spentP = fetch('https://api.whatsonchain.com/v1/bsv/main/utxos/spent', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ utxos: [{ txid: tx, vout: +vout || 0 }] }),
+    }).then(async (r) => { const [a] = r.ok ? await r.json() : []; return !a || a.error ? null : a.spentIn?.txid || ''; }).catch(() => null);
     const res = await fetch(`https://api.whatsonchain.com/v1/bsv/main/tx/${tx}/hex`);
     if (res.status === 404) {
       return say(`<p>Twetch ${tok.pending ? 'marks this Twonk pending and ' : ''}names transaction <code>${shortTx(tx)}</code>, but the blockchain has no such transaction (WhatsOnChain: not found). So there is no on-chain record.</p>`);
@@ -136,8 +142,12 @@ async function factCheck(body, f, row) {
     const rows = attrs.map((a) => `<tr${diffs.includes(a) ? ' class="diff"' : ''}><td>${esc(a.type)}</td><td>${lit(a.value)}</td><td>${a.count != null ? fmt(a.count) : '–'}</td></tr>`).join('')
       + siteOnly.map((t) => `<tr class="diff"><td>${esc(t)}</td><td class="none">not in the record</td><td>–</td></tr>`).join('');
     const art = (f.art?.[n] || []).map(([type, record, shown]) => `<p class="flag hot">The art shows ${esc(shown)}; the chain says ${esc(type)} ${lit(record)}.</p>`).join('');
+    const spent = await spentP;
+    const current = spent === '' ? ' The output is still unspent, so this is its latest record.'
+      : spent ? '' : ' Whether the output is still unspent could not be checked just now.';
     say(`
-      <p>Read just now from transaction ${link}, output ${+vout || 0}, via WhatsOnChain. This is the record as written on the blockchain.</p>
+      <p>Read just now from transaction ${link}, output ${+vout || 0}, via WhatsOnChain. This is the record as written on the blockchain.${current}</p>
+      ${spent ? `<p class="flag hot">Twetch points at this output, but the chain says it was spent later, in transaction <a href="https://whatsonchain.com/tx/${spent}" target="_blank" rel="noopener">${shortTx(spent)}</a>. The Twonk has moved on since, so this may not be its latest record.</p>` : ''}
       <p class="chain-stored">Stored on chain: rank ${j.rank != null ? '#' + fmt(+j.rank) : 'none'}${j.rarity ? `, ${esc(j.rarity)}` : ''}${j.score != null ? `, score ${esc(j.score)}` : ''}.</p>
       ${rows ? `<table class="chain-t"><thead><tr><th>Trait</th><th>Value on chain</th><th>Count stored</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
       ${attrs.length ? '' : '<p>The record on chain lists no traits.</p>'}
