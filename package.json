@@ -1,0 +1,13 @@
+{
+  "name": "true-twonk",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "burned": "node tools/bake-burned.mjs",
+    "data": "node tools/build-data.mjs",
+    "serve": "npx wrangler dev --port 8765",
+    "deploy": "node tools/build-data.mjs && npx wrangler deploy",
+    "card": "node tools/render-card.mjs"
+  }
+}

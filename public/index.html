@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>True Twonk</title>
+<meta name="description" content="How rare is your Twonk, really? Its true rank, counted from the Twonks themselves, next to the three rarest in its collection.">
+<meta name="theme-color" content="#090908">
+<link rel="canonical" href="https://true-twonk.buidler.workers.dev/">
+<!-- link previews; the Worker rewrites these for a shared Twonk at /t/<collection>/<number> -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="True Twonk">
+<meta property="og:title" content="How rare is your Twonk, really?">
+<meta property="og:description" content="Twetch's rank skips traits and still counts burned Twonks. Put yours in and see its true rank.">
+<meta property="og:url" content="https://true-twonk.buidler.workers.dev/">
+<meta property="og:image" content="https://true-twonk.buidler.workers.dev/card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="True Twonk: Twetch says one rank. What is the true one?">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F7931A'/%3E%3Cpath d='M16 6l8 7-8 13-8-13z' fill='%23090908'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="/" aria-label="True Twonk, start over">
+    <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l7 6-7 12-7-12z"/><path d="M5 9h14M9.5 9L12 21l2.5-12M8.5 3.8L9.5 9M15.5 3.8L14.5 9"/></svg></span>
+    <span><b>TRUE TWONK</b><small>rarity, counted for real</small></span>
+  </a>
+  <button class="sound" id="sound" type="button" aria-pressed="true" aria-label="Sound on">
+    <svg class="on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12"/></svg>
+    <svg class="off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>
+  </button>
+</header>
+
+<main>
+  <section class="ask">
+    <h1>How rare is your Twonk, <em>really<span class="q">?</span></em></h1>
+    <p class="lede">Twetch's rank uses counts that skip traits, count Signature frogs as one of one and keep burned Twonks in the pool. This counts every Twonk that still exists, and sets yours next to the three rarest in its collection.</p>
+    <form id="ask" class="lozenge-form" autocomplete="off">
+      <label for="q" class="sr">Twetch link, or collection and number</label>
+      <div class="lozenge input">
+        <input id="q" name="q" list="fleets" placeholder="Frog Cartel 514, or paste a Twetch link" spellcheck="false" required>
+      </div>
+      <button class="lozenge go" type="submit"><span>Final answer</span></button>
+      <datalist id="fleets"></datalist>
+    </form>
+    <p class="err" id="err" role="alert" hidden></p>
+  </section>
+
+  <section class="result" id="result" aria-live="polite" hidden></section>
+</main>
+
+<footer class="foot">
+  <p>made by <a href="https://twetch.com/u/20876" target="_blank" rel="noopener">@20876</a> on twetch</p>
+  <p class="data" id="dataline"></p>
+</footer>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

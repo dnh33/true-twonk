@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- The default link-preview card (public/card.png, 1200x630). Render: npm run card -->
+<html><head><meta charset="utf-8"><style>
+  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    position: relative; color: #f3efe7; font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+    background:
+      radial-gradient(900px 520px at 78% 30%, rgba(42, 31, 143, .62), transparent 70%),
+      radial-gradient(520px 380px at 12% 100%, rgba(247, 147, 26, .10), transparent 70%),
+      #090908;
+  }
+  /* studio floor lines, the quiz-show stage */
+  .floor { position: absolute; inset: auto 0 0 0; height: 190px; opacity: .22;
+    background: repeating-linear-gradient(90deg, transparent 0 58px, #2b2822 58px 60px); mask: linear-gradient(transparent, #000); }
+  .brand { position: absolute; left: 72px; top: 64px; display: flex; align-items: center; gap: 16px; }
+  .mark { width: 52px; height: 52px; border-radius: 13px; background: #f7931a; display: grid; place-items: center; }
+  .mark svg { width: 32px; height: 32px; fill: none; stroke: #090908; stroke-width: 1.6; stroke-linejoin: round; }
+  .brand b { font: 700 19px/1 "Cascadia Code", Consolas, monospace; letter-spacing: .16em; }
+  .brand small { display: block; margin-top: 6px; font: 15px/1 "Cascadia Code", Consolas, monospace; color: #918979; }
+  h1 { position: absolute; left: 72px; top: 168px; margin: 0; width: 600px; font-weight: 800; font-size: 78px; line-height: .98; letter-spacing: -.035em; }
+  h1 em { font-style: normal; color: #f7931a; }
+  h1 i { font-style: normal; margin-left: -.07em; }
+  /* frog #1286: Twetch ranks it #26 of Frog Cartel, its true rank is #92, so the struck #26 is honest */
+  /* the two answers, as quiz lozenges: Twetch's, struck; the true one, held back */
+  .loz { position: absolute; left: 72px; width: 520px; height: 64px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 40px; box-sizing: border-box; font: 600 26px/1 "Cascadia Code", Consolas, monospace;
+    clip-path: polygon(22px 0, calc(100% - 22px) 0, 100% 50%, calc(100% - 22px) 100%, 22px 100%, 0 50%); }
+  .loz span { color: #aaa295; font-size: 18px; letter-spacing: .12em; }
+  .a { top: 408px; background: #171612; box-shadow: inset 0 0 0 2px #2b2822; }
+  .a b { color: #918979; text-decoration: line-through; text-decoration-thickness: 3px; }
+  .b { top: 488px; background: linear-gradient(90deg, #f7931a, #ffc371); color: #090908; }
+  .b span { color: #4a2c05; }
+  .b b { font-size: 34px; }
+  .spot { position: absolute; right: 70px; top: 82px; width: 440px; height: 440px; border-radius: 28px; overflow: hidden;
+    box-shadow: 0 0 0 2px #2b2822, 0 40px 90px -30px #000, 0 0 140px -20px rgba(247, 147, 26, .35); }
+  .spot img { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+  .q { position: absolute; right: 40px; top: 470px; width: 120px; height: 120px; border-radius: 50%; display: grid; place-items: center;
+    background: #f7931a; color: #090908; font: 800 86px/1 "Segoe UI Variable Display", sans-serif; box-shadow: 0 14px 40px -10px #000; }
+</style></head><body>
+  <div class="floor"></div>
+  <div class="brand">
+    <span class="mark"><svg viewBox="0 0 24 24"><path d="M12 3l7 6-7 12-7-12z"/><path d="M5 9h14M9.5 9L12 21l2.5-12M8.5 3.8L9.5 9M15.5 3.8L14.5 9"/></svg></span>
+    <span><b>TRUE TWONK</b><small>rarity, counted for real</small></span>
+  </div>
+  <h1>How rare is your Twonk, <em>really<i>?</i></em></h1>
+  <div class="loz a"><span>TWETCH SAYS</span><b>#26</b></div>
+  <div class="loz b"><span>TRUE RANK</span><b>?</b></div>
+  <div class="spot"><img src="https://api.twetch.com/v1/media/033d27881e49db586472e9660b97ecb97abc855dfd2fc8dd785d0f1d6a4a95e1" alt=""></div>
+  <div class="q">?</div>
+</body></html>

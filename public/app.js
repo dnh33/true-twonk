@@ -1,0 +1,294 @@
+// True Twonk: one Twonk in, its true rank and the collection's top 3 out.
+// Every figure comes from public/data, built from Twetch's API at build time (tools/build-data.mjs).
+// The only live requests are the Twonk images, straight from Twetch's media route.
+
+const MEDIA = 'https://api.twetch.com/v1/media/';
+const TIERS = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Exotic'];
+const $ = (s) => document.querySelector(s);
+const fmt = (n) => n.toLocaleString('en-US');
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const norm = (s) => String(s).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g, '');
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+let index = null;
+const fleets = new Map();
+
+// ---------- sound: synthesised, no audio files ----------
+let audio = null;
+let soundOn = true;
+try { soundOn = localStorage.getItem('tt-sound') !== 'off'; } catch {}
+function ctx() { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); return audio; }
+function tone(freq, at, dur, type = 'sine', gain = 0.12) {
+  // a shared link opens straight on an answer: stay quiet until the visitor has touched the page
+  if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
+  const a = ctx(), o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, a.currentTime + at);
+  g.gain.setValueAtTime(0.0001, a.currentTime + at);
+  g.gain.exponentialRampToValueAtTime(gain, a.currentTime + at + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + at + dur);
+  o.connect(g).connect(a.destination); o.start(a.currentTime + at); o.stop(a.currentTime + at + dur + 0.05);
+}
+const sfx = {
+  // the lock-in: a low hit, then the tension pad
+  lock() { if (!soundOn) return; tone(55, 0, 0.5, 'sawtooth', 0.09); tone(110, 0, 0.35, 'square', 0.04); tone(220, 0.08, 0.9, 'triangle', 0.05); tone(233, 0.08, 0.9, 'triangle', 0.04); },
+  // the answer: up a bright arpeggio when Twetch undersold it, a flat pair when it did not
+  win() { if (!soundOn) return; [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.05 + i * 0.09, 0.5, 'triangle', 0.08)); tone(1568, 0.45, 0.8, 'sine', 0.05); },
+  same() { if (!soundOn) return; tone(392, 0.05, 0.35, 'triangle', 0.07); tone(392, 0.28, 0.5, 'triangle', 0.07); },
+  down() { if (!soundOn) return; tone(330, 0.05, 0.4, 'triangle', 0.07); tone(247, 0.3, 0.7, 'triangle', 0.07); },
+  miss() { if (!soundOn) return; tone(150, 0, 0.25, 'square', 0.05); tone(110, 0.12, 0.35, 'square', 0.05); },
+};
+function paintSound() {
+  const b = $('#sound'); b.setAttribute('aria-pressed', String(soundOn)); b.setAttribute('aria-label', soundOn ? 'Sound on' : 'Sound off');
+}
+$('#sound').addEventListener('click', () => { soundOn = !soundOn; try { localStorage.setItem('tt-sound', soundOn ? 'on' : 'off'); } catch {} paintSound(); if (soundOn) tone(660, 0, 0.15, 'triangle', 0.06); });
+paintSound();
+
+// ---------- data ----------
+async function loadIndex() {
+  const r = await fetch('/data/index.json');
+  if (!r.ok) throw new Error('index');
+  index = await r.json();
+  $('#fleets').innerHTML = index.fleets.map((f) => `<option value="${esc(f.name)} "></option>`).join('');
+  const d = new Date(index.at);
+  $('#dataline').textContent = `Counts from Twetch's API, read ${d.getDate()} ${d.toLocaleString('en-US', { month: 'short' })} ${d.getFullYear()}.`;
+}
+async function loadFleet(c) {
+  if (!fleets.has(c)) fleets.set(c, fetch(`/data/${c}.json`).then((r) => { if (!r.ok) throw new Error('fleet'); return r.json(); }));
+  return fleets.get(c);
+}
+
+// ---------- reading what people type ----------
+/** A Twetch link (any URL holding the collection's 64-character address), or "collection number". */
+function parse(text) {
+  const s = text.trim();
+  const hex = s.match(/[a-f0-9]{64}/i);
+  if (hex) {
+    const fleet = index.fleets.find((f) => f.c === hex[0].toLowerCase());
+    if (!fleet) return { error: 'That link points to a collection this site does not cover.' };
+    const after = s.slice(hex.index + 64);
+    const num = (after.match(/token=(\d+)/) || after.match(/[/#](\d+)\b/) || [])[1];
+    return num ? { fleet, number: +num } : { error: `Found ${fleet.name}, but not a Twonk number in that link. Add it, like "${fleet.name} 12".` };
+  }
+  const m = s.match(/^(.*?)[\s#/-]*(\d+)\s*$/);
+  const name = norm(m ? m[1] : s);
+  if (!name) return { error: 'Type a collection and a number, like "Frog Cartel 514".' };
+  const by = (test) => index.fleets.filter(test).sort((a, b) => b.n - a.n)[0];
+  const fleet = by((f) => norm(f.name) === name) || by((f) => norm(f.name).startsWith(name)) || by((f) => norm(f.name).includes(name)) || by((f) => f.slug.split('-').some((w) => w.startsWith(name)));
+  if (!fleet) return { error: `No collection called "${m ? m[1].trim() : s}". Pick one from the list as you type.` };
+  if (!m) return { error: `Which ${fleet.name}? Add its number, like "${fleet.name} 12".` };
+  return { fleet, number: +m[2] };
+}
+
+// ---------- the answer ----------
+const tierName = (i) => (i >= 0 ? TIERS[i] : null);
+const img = (f, row, cls = '') => row && row[3]
+  ? `<img class="${cls}" src="${MEDIA}${row[3]}" alt="${esc(nameOf(f, row[0]))}" loading="lazy" decoding="async">`
+  : `<span class="${cls} noimg" aria-hidden="true"></span>`;
+const nameOf = (f, n) => f.names[n] || `${f.name} #${n}`;
+const T0 = 8; // value indexes start after 8 fields in a token row
+const pct = (c, n) => { const p = (100 * c) / n; return p < 0.1 ? '<0.1%' : p < 10 ? `${p.toFixed(1)}%` : `${Math.round(p)}%`; };
+
+function steps(f, row) {
+  const out = [];
+  const [d1, d2, d3] = [row[5], row[6], row[7]];
+  const say = (d, what) => { if (d) out.push(`<li><b class="${d > 0 ? 'up' : 'dn'}">${d > 0 ? '+' : '−'}${fmt(Math.abs(d))}</b> ${what}</li>`); };
+  say(d1, f.pooled ? `counted within ${esc(f.name)}, not across all ${fmt(f.pool)} that Twetch pools it with` : 'trait counts recounted from the Twonks themselves');
+  // a Twonk without the trait loses no points; the ones that have it gain, and some pass it
+  const lacks = f.unscored.every((u) => row[T0 + f.types.indexOf(u)] < 0);
+  const them = f.unscored.length > 1 ? 'them' : 'it';
+  say(d2, lacks && d2 < 0
+    ? `Twetch leaves ${esc(f.unscored.join(' and '))} out of its rank. This one has none, so Twonks that have ${them} move past it`
+    : `${esc(f.unscored.join(' and '))} counted too (Twetch leaves ${them} out of its rank)`);
+  say(d3, 'burned Twonks no longer count');
+  return out;
+}
+
+function traitRows(f, row) {
+  const rows = [];
+  for (let t = 0; t < f.types.length; t++) {
+    const v = row[T0 + t]; if (v < 0) continue;
+    const [raw, tier, c, reported, beats, ex, cAll] = f.traits[t][v];
+    const value = /vaccination/i.test(f.types[t]) && /^\d+$/.test(raw) ? `${raw} dose${raw === '1' ? '' : 's'}` : raw;
+    const notes = [];
+    if (beats && ex) notes.push(`<span class="flag hot">Labelled ${tierName(tier)}, yet rarer than ${beats === 1 ? 'an' : fmt(beats)} ${beats === 1 ? tierName(ex[2]) : 'higher-labelled'} trait${beats === 1 ? '' : 's'}, like ${esc(f.traits[ex[0]][ex[1]][0])} (${tierName(ex[2])}, ${fmt(ex[3])})</span>`);
+    // only a miscount over the same Twonks Twetch counts; a gap from leaving burned ones out is not Twetch's error
+    if (reported != null && reported !== cAll && !f.pooled) notes.push(`<span class="flag">Twetch counts ${fmt(reported)}, really ${fmt(cAll)}</span>`);
+    if (f.unscored.includes(f.types[t])) notes.push(`<span class="flag">Not in Twetch's rank</span>`);
+    rows.push({ c, html: `
+      <li class="lozenge trait">
+        <span class="tt">${esc(f.types[t])}</span>
+        <span class="tv">${esc(value)}${tier >= 0 ? ` <i class="tier t${tier}">${tierName(tier)}</i>` : ''}</span>
+        <span class="tc"><b>${fmt(c)}</b> of ${fmt(f.n)} <small>${pct(c, f.n)}</small></span>
+        ${notes.length ? `<span class="notes">${notes.join('')}</span>` : ''}
+      </li>` });
+  }
+  return rows.sort((a, b) => a.c - b.c).map((r) => r.html).join('');
+}
+
+function ladder(f, row) {
+  const top = f.top.map((n) => f.tok.find((r) => r[0] === n));
+  const mine = row[2];
+  const rung = (r, me) => `
+    <li class="rung${me ? ' me' : ''}${r[2] <= 3 ? ' podium p' + r[2] : ''}">
+      <span class="rk">${fmt(r[2])}</span>
+      ${img(f, r, 'thumb')}
+      <span class="nm">${esc(nameOf(f, r[0]))}${me ? ' <em>yours</em>' : ''}</span>
+      <span class="tw">${r[4] ? `Twetch ${fmt(r[4])}` : 'Twetch: no rank'}</span>
+    </li>`;
+  let html = top.map((r) => rung(r, r[0] === row[0])).join('');
+  if (mine > 3) html += `<li class="gap" aria-hidden="true"><span></span></li>${rung(row, true)}`;
+  return `<ol class="ladder" aria-label="Top 3 in ${esc(f.name)}, and yours">${html}</ol>`;
+}
+
+function render(f, number) {
+  const row = f.tok.find((r) => r[0] === number);
+  const out = $('#result');
+  if (!row) return missing(f, number);
+  const name = nameOf(f, number);
+  const twetchLink = `https://twetch.com/market/${f.c}?token=${number}`;
+
+  if (f.burned[number] !== undefined) {
+    const next = f.burned[number];
+    const nextFleet = next && index.fleets.find((x) => x.name === next.split(' + ')[0]);
+    out.innerHTML = `
+      <div class="stage burned">
+        <div class="spot">${img(f, row, 'hero')}</div>
+        <div class="verdict">
+          <h2>${esc(name)}</h2>
+          <p class="big">Burned.</p>
+          <p>It no longer counts in ${esc(f.name)}.${next ? ` It lives on in ${esc(next.replace(' + ', ' and '))} under the same number.` : ''}</p>
+          ${nextFleet ? `<button class="lozenge go small" type="button" data-check="${esc(nextFleet.name)} ${number}"><span>Check ${esc(nextFleet.name)} #${number}</span></button>` : ''}
+        </div>
+      </div>`;
+    sfx.down();
+    return show();
+  }
+  if (!row[2]) return fail(`${name} has no traits on Twetch, so it has no rank to check.`);
+
+  const gained = row[4] ? row[4] - row[2] : null;
+  const head = gained == null ? `<p class="call">Twetch shows no rank for ${esc(f.name)}, so this is the only one there is.</p>`
+    : gained > 0 ? `<p class="call up">${fmt(gained)} place${gained === 1 ? '' : 's'} rarer than Twetch shows.</p>`
+    : gained < 0 ? `<p class="call dn">${fmt(-gained)} place${gained === -1 ? '' : 's'} less rare than Twetch shows.</p>`
+    : `<p class="call">Twetch got this one right.</p>`;
+  const st = steps(f, row);
+  const printed = row[1] && row[1] !== row[4]
+    ? `<p class="fine">Twetch's page prints #${fmt(row[1])}${f.pooled ? `, a rank across the ${fmt(f.pool)} it pools ${esc(f.name)} with` : `, because it also numbers ${fmt(f.twetchPrintedOf - f.twetchOf)} Twonks it shows no traits for`}. Above is its place among ${fmt(f.twetchOf)} ${esc(f.name)}.</p>` : '';
+
+  document.title = `${name}: true rank #${fmt(row[2])} · True Twonk`;
+  out.innerHTML = `
+    <div class="stage">
+      <div class="spot">${img(f, row, 'hero')}</div>
+      <div class="verdict">
+        <h2>${esc(name)}</h2>
+        <div class="ranks">
+          <div class="r twetch"><span>Twetch</span><b>${row[4] ? '#' + fmt(row[4]) : '–'}</b><small>${row[4] ? 'of ' + fmt(f.twetchOf) : 'no rank'}</small></div>
+          <div class="r true"><span>True rank</span><b class="slam">#${fmt(row[2])}</b><small>of ${fmt(f.n)}</small></div>
+        </div>
+        ${head}
+        ${st.length ? `<ul class="steps" aria-label="What moved it">${st.join('')}</ul>` : ''}
+        ${printed}
+        <p class="acts"><a class="out" href="${twetchLink}" target="_blank" rel="noopener">View on Twetch</a><button class="out share" type="button" data-share="${esc(shareUrl(f, number))}" data-title="${esc(`${name}: Twetch says ${row[4] ? '#' + fmt(row[4]) : 'no rank'}. Final answer?`)}">Share</button></p>
+      </div>
+      <div class="board">
+        <h3>The three rarest in ${esc(f.name)}</h3>
+        ${ladder(f, row)}
+      </div>
+    </div>
+    <div class="traits-wrap">
+      <h3>Its traits, rarest first</h3>
+      <ul class="traits">${traitRows(f, row)}</ul>
+      <details class="how">
+        <summary>How the true rank is counted</summary>
+        <p>Same formula Twetch uses for ${esc(f.name)} (${f.method === 'inv' ? 'rarity score: one over each trait\'s share, added up' : 'information content: how surprising each trait is, added up'}), with three changes:</p>
+        <ul>
+          <li>Every count is taken from the Twonks themselves. Twetch counts Signature "1 of 1" as one, though more frogs carry it.${f.pooled ? ` ${esc(f.name)} is counted within itself; Twetch counts it across ${fmt(f.pool)}.` : ''}</li>
+          <li>Every trait counts${f.unscored.length ? `, ${esc(f.unscored.join(' and '))} included` : ''}.</li>
+          <li>Burned Twonks no longer count${Object.keys(f.burned).length ? ` (${fmt(Object.keys(f.burned).length)} in ${esc(f.name)})` : ''}.</li>
+        </ul>
+        <p>A Twonk's place among ${fmt(f.n)} living ${esc(f.name)}, rarest first.</p>
+      </details>
+    </div>`;
+  (gained > 0 || gained == null) ? sfx.win() : gained < 0 ? sfx.down() : sfx.same();
+  show();
+}
+
+// Collections made from another keep that one's numbers, so their numbers skip (Apu Cartel has 1,122 of 3,690).
+const ORIGIN = { 'Apu Cartel': 'Frog Cartel', Graveyard: 'Frog Cartel', 'Lab Monkes': 'Astro Apes', 'Special Forces': 'Astro Apes' };
+async function missing(f, number) {
+  const nums = f.tok.map((r) => r[0]);
+  const lo = nums[0], hi = nums[nums.length - 1];
+  const gappy = hi - lo + 1 !== nums.length;
+  const below = nums.filter((n) => n < number).pop(), above = nums.find((n) => n > number);
+  const near = [below, above].filter((n) => n != null);
+  const checks = near.map((n) => [`${f.name} ${n}`, `#${fmt(n)}`]);
+  let msg;
+  if (!gappy) msg = `${f.name} has no #${fmt(number)}. Its numbers run ${fmt(lo)} to ${fmt(hi)}.`;
+  else {
+    const from = ORIGIN[f.name];
+    msg = from
+      ? `${f.name} has no #${fmt(number)}. Its ${fmt(nums.length)} Twonks keep the number of the ${from} Twonk each came from, so the numbers skip.`
+      : `${f.name} has no #${fmt(number)}. Its ${fmt(nums.length)} numbers skip between ${fmt(lo)} and ${fmt(hi)}.`;
+    const origin = from && index.fleets.find((x) => x.name === from);
+    if (origin && (await loadFleet(origin.c)).tok.some((r) => r[0] === number)) checks.unshift([`${from} ${number}`, `${from} #${fmt(number)}`]);
+  }
+  if (near.length) msg += ` Nearest: ${near.map((n) => '#' + fmt(n)).join(' and ')}.`;
+  fail(msg, checks);
+}
+
+// ---------- links that open on one Twonk ----------
+// /t/<collection>/<number> unfurls as that Twonk (src/worker.js); the old /#<collection>/<number> still opens too.
+const slugOf = (f) => index.fleets.find((x) => x.c === f.c).slug;
+const shareUrl = (f, number) => `${location.origin}/t/${slugOf(f)}/${number}`;
+function linked() {
+  const m = location.pathname.match(/^\/t\/([a-z0-9-]+)\/(\d+)\/?$/) || location.hash.match(/^#([a-z0-9-]+)\/(\d+)$/);
+  const f = m && index.fleets.find((x) => x.slug === m[1]);
+  return f ? `${f.name} ${m[2]}` : null;
+}
+async function share(b) {
+  const { share: url, title } = b.dataset;
+  // the system share sheet where there is one (phones), else the clipboard
+  if (navigator.share && matchMedia('(pointer: coarse)').matches) { try { await navigator.share({ title, url }); } catch {} return; }
+  try { await navigator.clipboard.writeText(url); b.textContent = 'Link copied'; }
+  catch { b.textContent = url; }
+  setTimeout(() => { b.textContent = 'Share'; }, 2200);
+}
+
+function show() {
+  $('#err').hidden = true;
+  const out = $('#result');
+  out.hidden = false;
+  out.classList.remove('in'); void out.offsetWidth; out.classList.add('in');
+  out.querySelector('[data-check]')?.addEventListener('click', (e) => { $('#q').value = e.currentTarget.dataset.check; check(); });
+  out.querySelector('[data-share]')?.addEventListener('click', (e) => share(e.currentTarget));
+  out.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+}
+/** checks: [query, label] pairs offered as one-click buttons under the message. */
+function fail(msg, checks = []) {
+  const e = $('#err');
+  e.innerHTML = esc(msg) + (checks.length ? `<span class="tries">${checks.map(([q, label]) => `<button type="button" class="try" data-q="${esc(q)}">Check ${esc(label)}</button>`).join('')}</span>` : '');
+  e.querySelectorAll('.try').forEach((b) => b.addEventListener('click', () => { $('#q').value = b.dataset.q; check(); }));
+  e.hidden = false; $('#result').hidden = true; sfx.miss();
+}
+
+async function check() {
+  if (!index) return;
+  const p = parse($('#q').value);
+  if (p.error) return fail(p.error);
+  sfx.lock();
+  const go = $('.go'); go.disabled = true; go.classList.add('busy');
+  try {
+    const f = await loadFleet(p.fleet.c);
+    await new Promise((r) => setTimeout(r, reduced ? 0 : 650)); // the beat between "final answer" and the answer
+    render(f, p.number);
+    history.replaceState(null, '', `/t/${p.fleet.slug}/${p.number}`);
+  } catch {
+    fail('Could not load that collection. Check your connection and try again.');
+  } finally { go.disabled = false; go.classList.remove('busy'); }
+}
+
+$('#ask').addEventListener('submit', (e) => { e.preventDefault(); check(); });
+
+loadIndex().then(() => {
+  const q = linked();
+  if (q) { $('#q').value = q; check(); }
+}).catch(() => fail('Could not load the collections. Reload to try again.'));

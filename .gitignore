@@ -1,0 +1,9 @@
+node_modules/
+# local Cloudflare state and account cache: never publish
+.wrangler/
+.dev.vars
+.env*
+# local design notes
+.impeccable/
+mockups/
+PRODUCT.md

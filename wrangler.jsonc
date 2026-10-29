@@ -1,0 +1,12 @@
+// Static assets, plus a Worker that runs only for shared links (/t/...). Every other request is a free asset
+// and spends none of the account's 100,000 daily Worker requests; each click on a shared link spends one.
+{
+  "name": "true-twonk",
+  "compatibility_date": "2026-10-01",
+  "main": "./src/worker.js",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/t/*"]
+  }
+}
